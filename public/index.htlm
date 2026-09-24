@@ -1,1 +1,226 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vendedor IA TikTok</title>
 
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #050914;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      max-width: 430px;
+      min-height: 100vh;
+      margin: auto;
+      padding: 25px 18px;
+    }
+
+    .logo {
+      font-size: 21px;
+      font-weight: bold;
+      margin-bottom: 35px;
+    }
+
+    .logo span { color: #55d9ff; }
+
+    h1 {
+      font-size: 35px;
+      line-height: 1.05;
+      margin-bottom: 12px;
+    }
+
+    h1 span { color: #b56cff; }
+
+    .descricao {
+      color: #aeb8ca;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: #0c1423;
+      border: 1px solid #23334e;
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 25px;
+    }
+
+    label {
+      display: block;
+      color: #aeb8ca;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 14px;
+      margin: 7px 0 10px;
+      border-radius: 12px;
+      border: 1px solid #263650;
+      background: #07101c;
+      color: white;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      padding: 17px;
+      margin-top: 12px;
+      border: 0;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      color: white;
+      background: linear-gradient(90deg,#8a35ff,#00b9f5);
+    }
+
+    button:disabled { opacity: .5; }
+
+    #resultado {
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .oculto { display: none; }
+
+    .status {
+      text-align: center;
+      color: #72d8ff;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="logo">🎬 Vendedor <span>IA TikTok</span></div>
+
+  <h1>Crie vídeos que <span>vendem</span></h1>
+
+  <p class="descricao">
+    Informe o produto e deixe a inteligência artificial criar
+    seu roteiro para TikTok sem você precisar aparecer.
+  </p>
+
+  <div class="card">
+
+    <label>Produto *</label>
+    <input id="produto" placeholder="Ex.: Mini aspirador portátil">
+
+    <label>Preço</label>
+    <input id="preco" placeholder="Ex.: R$ 49,90">
+
+    <label>Público-alvo</label>
+    <input id="publico" placeholder="Ex.: pessoas que cuidam do carro">
+
+    <label>Estilo do vídeo</label>
+
+    <select id="estilo">
+      <option>Viral</option>
+      <option>Oferta</option>
+      <option>Demonstração</option>
+      <option>Problema / Solução</option>
+    </select>
+
+    <button id="gerar" onclick="gerarRoteiro()">
+      ✨ Gerar roteiro com IA
+    </button>
+
+    <p id="status" class="status oculto">
+      🤖 A IA está criando seu roteiro...
+    </p>
+
+  </div>
+
+  <div id="cardResultado" class="card oculto">
+
+    <h2>🎥 Seu roteiro</h2>
+
+    <div id="resultado"></div>
+
+    <button onclick="copiarRoteiro()">
+      📋 Copiar roteiro
+    </button>
+
+  </div>
+
+</div>
+
+<script>
+
+async function gerarRoteiro() {
+
+  const produto = document.getElementById("produto").value.trim();
+
+  if (!produto) {
+    alert("Digite o nome do produto.");
+    return;
+  }
+
+  const botao = document.getElementById("gerar");
+  const status = document.getElementById("status");
+
+  botao.disabled = true;
+  status.classList.remove("oculto");
+
+  try {
+
+    const resposta = await fetch("/api/roteiro", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        produto: produto,
+        preco: document.getElementById("preco").value,
+        publico: document.getElementById("publico").value,
+        estilo: document.getElementById("estilo").value
+      })
+    });
+
+    const dados = await resposta.json();
+
+    if (!resposta.ok) {
+      throw new Error(dados.error || "Erro ao gerar roteiro");
+    }
+
+    document.getElementById("resultado").textContent = dados.roteiro;
+
+    document.getElementById("cardResultado")
+      .classList.remove("oculto");
+
+  } catch (erro) {
+
+    alert("Erro: " + erro.message);
+
+  } finally {
+
+    botao.disabled = false;
+    status.classList.add("oculto");
+
+  }
+}
+
+async function copiarRoteiro() {
+
+  const texto = document.getElementById("resultado").textContent;
+
+  await navigator.clipboard.writeText(texto);
+
+  alert("Roteiro copiado!");
+
+}
+
+</script>
+
+</body>
+</html>
