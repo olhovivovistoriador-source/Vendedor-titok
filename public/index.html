@@ -236,17 +236,34 @@ async function copiarRoteiro() {
   alert("Roteiro copiado!");}
 
 async function gerarNarracao() {
-  const texto = document.getElementById("resultado").innerText;
+  
 
-  if (!texto) {
-    alert("Gere um roteiro primeiro.");
-    return;
-  }
+ 
 
   const botao = document.getElementById("gerarNarracao");
   const status = document.getElementById("statusNarracao");
   const audioArea = document.getElementById("audioArea");
-  const audioPlayer = document.getElementById("audioPlayer");
+  const roteiroCompleto = document.getElementById("resultado").innerText;
+
+let texto = roteiroCompleto;
+
+const inicioNarracao = roteiroCompleto.indexOf("NARRAÇÃO:");
+const inicioCenas = roteiroCompleto.indexOf("CENAS:");
+
+if (inicioNarracao !== -1) {
+    const inicio = inicioNarracao + "NARRAÇÃO:".length;
+
+    texto = inicioCenas !== -1
+        ? roteiroCompleto.substring(inicio, inicioCenas)
+        : roteiroCompleto.substring(inicio);
+
+    texto = texto.trim();
+}
+if (!texto) {
+    alert("Gere um roteiro primeiro.");
+    return;
+}
+const audioPlayer = document.getElementById("audioPlayer");
   const baixarAudio = document.getElementById("baixarAudio");
 
   botao.disabled = true;
