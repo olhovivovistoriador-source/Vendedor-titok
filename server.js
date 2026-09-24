@@ -220,7 +220,7 @@ app.post("/api/narracao", async (req, res) => {
   }
 });
 
-app.post("/api/video", async (req, res) => {
+app.post("app.post("/api/video", async (req, res) => {
   try {
     const { roteiro } = req.body;
 
@@ -230,16 +230,36 @@ app.post("/api/video", async (req, res) => {
       });
     }
 
-    res.json({
-      ok: true,
-      message: "Preparação do vídeo iniciada."
+    const nomeArquivo = `video-${Date.now()}.mp4`;
+    const caminhoVideo = `/tmp/${nomeArquivo}`;
+
+    const argumentos = [
+      "-f", "lavfi",
+      "-i", "color=c=black:s=720x1280:d=10",
+      "-c:v", "libx264",
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      "-y",
+      caminhoVideo
+    ];
+
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, argumentos, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
     });
 
+    res.download(caminhoVideo, "video-tiktok.mp4");
+
   } catch (error) {
-    console.error("Erro ao preparar vídeo:", error);
+    console.error("Erro ao gerar vídeo:", error);
 
     res.status(500).json({
-      error: "Erro ao preparar o vídeo."
+      error: "Erro ao gerar o vídeo."
     });
   }
 });
