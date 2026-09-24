@@ -307,7 +307,35 @@ const audioPlayer = document.getElementById("audioPlayer");
   }
 }
 async function gerarVideo() {
-    alert("🎬 Botão Gerar vídeo funcionando!");
+    const roteiro = document.getElementById("resultado").innerText;
+
+    if (!roteiro) {
+        alert("Gere um roteiro primeiro.");
+        return;
+    }
+
+    try {
+        const resposta = await fetch("/api/video", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                roteiro: roteiro
+            })
+        });
+
+        const data = await resposta.json();
+
+        if (!resposta.ok) {
+            throw new Error(data.error || "Erro ao preparar vídeo.");
+        }
+
+        alert("🎬 " + data.message);
+
+    } catch (error) {
+        alert("Erro: " + error.message);
+    }
 }
 
 </script>
