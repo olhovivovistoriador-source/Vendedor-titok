@@ -145,6 +145,23 @@
     <h2>🎥 Seu roteiro</h2>
 
     <div id="resultado"></div>
+    <button id="gerarNarracao" onclick="gerarNarracao()" style="margin-top:18px;">
+  🔊 Gerar narração
+</button>
+
+<p id="statusNarracao" class="status oculto">
+  🎙️ Gerando voz em português...
+</p>
+
+<div id="audioArea" class="oculto" style="margin-top:15px;">
+  <audio id="audioPlayer" controls style="width:100%;"></audio>
+
+  <a id="baixarAudio" download="narracao.wav">
+    <button type="button" style="margin-top:10px;">
+      ⬇️ Baixar narração
+    </button>
+  </a>
+</div>
 
     <button onclick="copiarRoteiro()">
       📋 Copiar roteiro
@@ -218,6 +235,56 @@ async function copiarRoteiro() {
 
   alert("Roteiro copiado!");
 
+async function gerarNarracao() {
+  const texto = document.getElementById("resultado").innerText;
+
+  if (!texto) {
+    alert("Gere um roteiro primeiro.");
+    return;
+  }
+
+  const botao = document.getElementById("gerarNarracao");
+  const status = document.getElementById("statusNarracao");
+  const audioArea = document.getElementById("audioArea");
+  const audioPlayer = document.getElementById("audioPlayer");
+  const baixarAudio = document.getElementById("baixarAudio");
+
+  botao.disabled = true;
+  status.classList.remove("oculto");
+  audioArea.classList.add("oculto");
+
+  try {
+    const resposta = await fetch("/api/narracao", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        texto: texto
+      })
+    });
+
+    const data = await resposta.json();
+
+    if (!resposta.ok) {
+      throw new Error(data.error || "Erro ao gerar narração.");
+    }
+
+    const audioUrl =
+      `data:${data.mimeType};base64,${data.audio}`;
+
+    audioPlayer.src = audioUrl;
+    baixarAudio.href = audioUrl;
+
+    audioArea.classList.remove("oculto");
+
+  } catch (error) {
+    alert("Erro: " + error.message);
+
+  } finally {
+    botao.disabled = false;
+    status.classList.add("oculto");
+  }
 }
 
 </script>
