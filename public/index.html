@@ -230,13 +230,13 @@ async function gerarRoteiro() {
   }
 }
 
-async function copiarRoteiro() {
 
-  const texto = document.getElementById("resultado").textContent;
+  async function copiarRoteiro() {
+    const texto = document.getElementById("resultado").textContent;
+    await navigator.clipboard.writeText(texto);
+    alert("Roteiro copiado!");
+}
 
-  await navigator.clipboard.writeText(texto);
-
-  alert("Roteiro copiado!");}
 
 async function gerarNarracao() {
   
