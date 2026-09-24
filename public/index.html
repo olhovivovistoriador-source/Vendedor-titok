@@ -314,6 +314,10 @@ async function gerarVideo() {
         return;
     }
 
+    const botao = document.getElementById("gerarVideo");
+    botao.disabled = true;
+    botao.textContent = "🎬 Gerando vídeo...";
+
     try {
         const resposta = await fetch("/api/video", {
             method: "POST",
@@ -325,18 +329,37 @@ async function gerarVideo() {
             })
         });
 
-        const data = await resposta.json();
-
         if (!resposta.ok) {
-            throw new Error(data.error || "Erro ao preparar vídeo.");
+            const textoErro = await resposta.text();
+            throw new Error(textoErro || "Erro ao gerar vídeo.");
         }
 
-        alert("🎬 " + data.message);
+        const videoBlob = await resposta.blob();
+        const videoUrl = URL.createObjectURL(videoBlob);
+
+        const link = document.createElement("a");
+        link.href = videoUrl;
+        link.download = "video-tiktok.mp4";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+
+        setTimeout(() => URL.revokeObjectURL(videoUrl), 1000);
+
+        alert("🎬 Vídeo gerado com sucesso!");
 
     } catch (error) {
         alert("Erro: " + error.message);
+
+    } finally {
+        botao.disabled = false;
+        botao.textContent = "🎬 Gerar vídeo";
     }
-}
+
+
+   
+        
+     
 
 </script>
 
