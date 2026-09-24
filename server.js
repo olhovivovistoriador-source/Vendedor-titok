@@ -218,6 +218,30 @@ app.post("/api/narracao", async (req, res) => {
     });
   }
 });
+
+app.post("/api/video", async (req, res) => {
+  try {
+    const { roteiro } = req.body;
+
+    if (!roteiro) {
+      return res.status(400).json({
+        error: "Roteiro não recebido."
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: "Preparação do vídeo iniciada."
+    });
+
+  } catch (error) {
+    console.error("Erro ao preparar vídeo:", error);
+
+    res.status(500).json({
+      error: "Erro ao preparar o vídeo."
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
