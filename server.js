@@ -234,14 +234,16 @@ app.post("/api/video", async (req, res) => {
     const caminhoVideo = `/tmp/${nomeArquivo}`;
 
     const argumentos = [
-      "-f", "lavfi",
-      "-i", "color=c=black:s=720x1280:d=10",
-      "-c:v", "libx264",
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
-      "-y",
-      caminhoVideo
-    ];
+  "-f", "lavfi",
+  "-i", "color=c=0x151525:s=720x1280:d=10",
+  "-vf",
+  "drawtext=text='VENDEDOR IA TIKTOK':fontcolor=white:fontsize=46:x=(w-text_w)/2:y=(h-text_h)/2",
+  "-c:v", "libx264",
+  "-pix_fmt", "yuv420p",
+  "-movflags", "+faststart",
+  "-y",
+  caminhoVideo
+];
 
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, argumentos, (error) => {
