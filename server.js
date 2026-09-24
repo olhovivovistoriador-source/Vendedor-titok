@@ -220,7 +220,7 @@ app.post("/api/narracao", async (req, res) => {
   }
 });
 
-app.post("app.post("/api/video", async (req, res) => {
+app.post("/api/video", async (req, res) => {
   try {
     const { roteiro } = req.body;
 
