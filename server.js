@@ -134,7 +134,91 @@ CTA:
     });
   }
 });
+// GERAR NARRAÇÃO COM GEMINI
+app.post("/api/narracao", async (req, res) => {
+  try {
+    const { texto } = req.body;
 
+    if (!texto) {
+      return res.status(400).json({
+        error: "Texto da narração não informado."
+      });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: "GEMINI_API_KEY não configurada."
+      });
+    }
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": process.env.GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text:
+                "Leia em português do Brasil, com voz feminina natural, " +
+                "animada e apropriada para um anúncio de TikTok: " + texto
+            }]
+          }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: "Kore"
+                }
+              }
+            }
+          }
+        })
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Erro TTS Gemini:", data);
+
+      return res.status(response.status).json({
+        error:
+          data?.error?.message ||
+          "Erro ao gerar narração."
+      });
+    }
+
+    const parteAudio =
+      data?.candidates?.[0]?.content?.parts?.find(
+        parte => parte.inlineData?.data
+      );
+
+    if (!parteAudio) {
+      return res.status(500).json({
+        error: "O Gemini não retornou áudio."
+      });
+    }
+
+    res.json({
+      audio: parteAudio.inlineData.data,
+      mimeType:
+        parteAudio.inlineData.mimeType ||
+        "audio/L16;rate=24000"
+    });
+
+  } catch (error) {
+    console.error("Erro na narração:", error);
+
+    res.status(500).json({
+      error: "Erro interno ao gerar narração."
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
