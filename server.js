@@ -163,8 +163,7 @@ app.post("/api/narracao", async (req, res) => {
           contents: [{
             parts: [{
               text:
-                "Leia em português do Brasil, com voz feminina natural, " +
-                "animada e apropriada para um anúncio de TikTok: " + texto
+               texto
             }]
           }],
           generationConfig: {
