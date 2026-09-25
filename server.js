@@ -442,7 +442,7 @@ function extrairLinhasLegenda(roteiro) {
   return linhas.slice(0, 4);
 }
 
-function quebrarTextoSvg(texto, max = 18) {
+function quebrarTextoSvg(texto, max = 16) {
   const palavras = String(texto || "").toUpperCase().split(/\s+/).filter(Boolean);
   const linhas = [];
   let atual = "";
@@ -461,22 +461,25 @@ function quebrarTextoSvg(texto, max = 18) {
 
 async function criarCardLegendaPNG(texto, destino) {
   const linhas = quebrarTextoSvg(texto);
-  const espacamento = 44;
+  const total = linhas.length;
+  const centroY = 110;
+  const espacamento = 46;
+  const inicioY = centroY - ((total - 1) * espacamento) / 2;
 
-  const tspans = linhas.map((linha, i) => {
-    const destaque = i === linhas.length - 1 ? "#FFE600" : "#FFFFFF";
-    return `<tspan x="330" dy="${i === 0 ? 0 : espacamento}" fill="${destaque}">${escaparXml(linha)}</tspan>`;
+  const textos = linhas.map((linha, i) => {
+    const y = inicioY + i * espacamento;
+    return `<text x="330" y="${y}" text-anchor="middle"
+      dominant-baseline="middle"
+      font-family="Arial, sans-serif" font-size="36" font-weight="900"
+      fill="#FFFFFF" stroke="#000000" stroke-width="3" paint-order="stroke">
+      ${escaparXml(linha)}
+    </text>`;
   }).join("");
 
-  const y = linhas.length === 1 ? 112 : linhas.length === 2 ? 90 : 68;
   const svg = `
   <svg width="660" height="220" xmlns="http://www.w3.org/2000/svg">
     <rect x="18" y="24" width="624" height="172" rx="30" fill="rgba(0,0,0,0.56)"/>
-    <text x="330" y="${y}" text-anchor="middle"
-      font-family="Arial, sans-serif" font-size="38" font-weight="900"
-      fill="#FFFFFF" stroke="black" stroke-width="3" paint-order="stroke">
-      ${tspans}
-    </text>
+    ${textos}
   </svg>`;
   await sharp(Buffer.from(svg)).png().toFile(destino);
 }
