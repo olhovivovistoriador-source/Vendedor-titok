@@ -172,7 +172,7 @@
   </a>
 </div>
     <button id="gerarVideo" onclick="gerarVideo()" style="margin-top:15px;">
-    🎬 Gerar vídeo com o produto
+    🎬 Gerar vídeo completo
 </button>
 
     <button onclick="copiarRoteiro()">
@@ -184,6 +184,9 @@
 </div>
 
 <script>
+
+let audioGeradoBase64 = null;
+let audioGeradoMimeType = null;
 
 async function gerarRoteiro() {
 
@@ -305,6 +308,10 @@ const audioPlayer = document.getElementById("audioPlayer");
     audioPlayer.src = audioUrl;
     baixarAudio.href = audioUrl;
 
+    // Reaproveita exatamente esta narração na montagem do vídeo.
+    audioGeradoBase64 = data.audio;
+    audioGeradoMimeType = data.mimeType;
+
     audioArea.classList.remove("oculto");
 
   } catch (error) {
@@ -341,12 +348,10 @@ async function gerarVideo() {
         alert("Gere um roteiro primeiro.");
         return;
     }
-
     if (!arquivo) {
         alert("Escolha uma foto do produto para criar o vídeo.");
         return;
     }
-
     if (arquivo.size > 8 * 1024 * 1024) {
         alert("A foto deve ter no máximo 8 MB.");
         return;
@@ -354,36 +359,88 @@ async function gerarVideo() {
 
     const botao = document.getElementById("gerarVideo");
     botao.disabled = true;
-    botao.textContent = "🎬 Montando vídeo...";
 
     try {
+        // Se o usuário ainda não clicou em "Gerar narração", gera aqui
+        // em uma requisição separada. Assim o Render não precisa gerar
+        // voz + vídeo dentro da mesma requisição longa.
+        if (!audioGeradoBase64) {
+            botao.textContent = "🎙️ Gerando narração...";
+
+            let texto = roteiro;
+            const inicioNarracao = roteiro.indexOf("NARRAÇÃO:");
+            const inicioCenas = roteiro.indexOf("CENAS:");
+            if (inicioNarracao !== -1) {
+                const inicio = inicioNarracao + "NARRAÇÃO:".length;
+                texto = (inicioCenas !== -1 && inicioCenas > inicioNarracao
+                    ? roteiro.substring(inicio, inicioCenas)
+                    : roteiro.substring(inicio)).trim();
+            }
+
+            const respostaVoz = await fetch("/api/narracao", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ texto })
+            });
+
+            const dadosVoz = await respostaVoz.json();
+            if (!respostaVoz.ok) {
+                throw new Error(dadosVoz.error || "Erro ao gerar narração.");
+            }
+
+            audioGeradoBase64 = dadosVoz.audio;
+            audioGeradoMimeType = dadosVoz.mimeType;
+
+            const audioUrl = `data:${dadosVoz.mimeType};base64,${dadosVoz.audio}`;
+            document.getElementById("audioPlayer").src = audioUrl;
+            document.getElementById("baixarAudio").href = audioUrl;
+            document.getElementById("audioArea").classList.remove("oculto");
+        }
+
+        botao.textContent = "🎬 Montando vídeo...";
         const imagem = await arquivoParaDataURL(arquivo);
+
         const resposta = await fetch("/api/video", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ roteiro, imagem })
+            body: JSON.stringify({
+                roteiro,
+                imagem,
+                audio: audioGeradoBase64,
+                audioMimeType: audioGeradoMimeType
+            })
         });
 
         if (!resposta.ok) {
-            let mensagem = "Erro ao gerar vídeo.";
+            let mensagem = `Erro ao gerar vídeo (HTTP ${resposta.status}).`;
+            const tipo = resposta.headers.get("content-type") || "";
             try {
-                const erro = await resposta.json();
-                mensagem = erro.error || mensagem;
+                if (tipo.includes("application/json")) {
+                    const erro = await resposta.json();
+                    mensagem = erro.error || mensagem;
+                } else {
+                    const textoErro = await resposta.text();
+                    if (textoErro) mensagem += " O servidor encerrou a montagem antes de concluir.";
+                }
             } catch (_) {}
             throw new Error(mensagem);
         }
 
         const videoBlob = await resposta.blob();
+        if (!videoBlob.size) {
+            throw new Error("O servidor retornou um vídeo vazio.");
+        }
+
         const videoUrl = URL.createObjectURL(videoBlob);
         const link = document.createElement("a");
         link.href = videoUrl;
-        link.download = "video-tiktok-produto.mp4";
+        link.download = "video-tiktok-completo.mp4";
         document.body.appendChild(link);
         link.click();
         link.remove();
-        setTimeout(() => URL.revokeObjectURL(videoUrl), 3000);
-        alert("🎬 Vídeo do produto gerado com sucesso!");
+        setTimeout(() => URL.revokeObjectURL(videoUrl), 5000);
 
+        alert("🎬 Vídeo com narração gerado com sucesso!");
     } catch (error) {
         alert("Erro: " + error.message);
     } finally {
