@@ -175,6 +175,10 @@
     🎬 Gerar vídeo completo
 </button>
 
+    <button id="baixarLegendas" onclick="baixarLegendasSRT()" style="margin-top:12px;">
+      📝 Baixar legendas (.SRT)
+    </button>
+
     <button onclick="copiarRoteiro()">
       📋 Copiar roteiro
     </button>
@@ -339,6 +343,87 @@ document.getElementById("fotoProduto").addEventListener("change", async (evento)
     document.getElementById("previewFoto").classList.remove("oculto");
     document.getElementById("fotoStatus").textContent = "✅ Foto selecionada: " + arquivo.name;
 });
+
+
+function formatarTempoSRT(segundos) {
+    const totalMs = Math.max(0, Math.round(segundos * 1000));
+    const h = Math.floor(totalMs / 3600000);
+    const m = Math.floor((totalMs % 3600000) / 60000);
+    const s = Math.floor((totalMs % 60000) / 1000);
+    const ms = totalMs % 1000;
+    return [h, m, s].map(v => String(v).padStart(2, "0")).join(":") + "," + String(ms).padStart(3, "0");
+}
+
+function extrairLegendasDoRoteiro(roteiro) {
+    const texto = String(roteiro || "");
+    const inicio = texto.indexOf("LEGENDAS:");
+    const fim = texto.indexOf("CTA:");
+    let trecho = inicio !== -1
+        ? texto.substring(inicio + "LEGENDAS:".length, fim !== -1 && fim > inicio ? fim : texto.length)
+        : "";
+
+    let linhas = trecho.split(/\n+/)
+        .map(l => l.replace(/^\s*[-•]\s*/, "").trim())
+        .filter(Boolean);
+
+    if (!linhas.length) {
+        const inicioNarracao = texto.indexOf("NARRAÇÃO:");
+        const inicioCenas = texto.indexOf("CENAS:");
+        const narracao = inicioNarracao !== -1
+            ? texto.substring(inicioNarracao + "NARRAÇÃO:".length, inicioCenas !== -1 ? inicioCenas : texto.length).trim()
+            : texto.trim();
+
+        const palavras = narracao.split(/\s+/).filter(Boolean);
+        linhas = [];
+        for (let i = 0; i < palavras.length; i += 6) {
+            linhas.push(palavras.slice(i, i + 6).join(" "));
+        }
+    }
+
+    return linhas.slice(0, 12);
+}
+
+async function baixarLegendasSRT() {
+    const roteiro = document.getElementById("resultado").innerText;
+
+    if (!roteiro) {
+        alert("Gere um roteiro primeiro.");
+        return;
+    }
+
+    const linhas = extrairLegendasDoRoteiro(roteiro);
+
+    if (!linhas.length) {
+        alert("Não encontrei texto para criar as legendas.");
+        return;
+    }
+
+    const player = document.getElementById("audioPlayer");
+    let duracao = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 0;
+
+    if (!duracao) {
+        const palavras = linhas.join(" ").split(/\s+/).filter(Boolean).length;
+        duracao = Math.max(8, palavras / 2.5);
+    }
+
+    const passo = duracao / linhas.length;
+
+    const srt = linhas.map((linha, i) => {
+        const inicio = i * passo;
+        const fim = Math.min(duracao, (i + 1) * passo);
+        return `${i + 1}\n${formatarTempoSRT(inicio)} --> ${formatarTempoSRT(fim)}\n${linha}\n`;
+    }).join("\n");
+
+    const blob = new Blob([srt], { type: "application/x-subrip;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "legendas-tiktok.srt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
 
 async function gerarVideo() {
     const roteiro = document.getElementById("resultado").innerText;
