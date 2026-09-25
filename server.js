@@ -415,31 +415,52 @@ function escaparXml(texto) {
     .replace(/'/g, "&apos;");
 }
 
-function extrairLinhasLegenda(roteiro) {
+function extrairNarracaoParaLegendas(roteiro) {
   const texto = String(roteiro || "");
-  const inicio = texto.indexOf("LEGENDAS:");
-  const fim = texto.indexOf("CTA:");
-  let trecho = inicio !== -1
-    ? texto.substring(inicio + "LEGENDAS:".length, fim !== -1 && fim > inicio ? fim : texto.length)
-    : "";
+  const inicio = texto.indexOf("NARRAÇÃO:");
+  const fim = texto.indexOf("CENAS:");
 
-  let linhas = trecho.split(/\n+/)
-    .map(l => l.replace(/^\s*[-•]\s*/, "").trim())
-    .filter(Boolean);
+  let narracao = inicio !== -1
+    ? texto.substring(inicio + "NARRAÇÃO:".length, fim !== -1 && fim > inicio ? fim : texto.length)
+    : texto;
 
-  if (!linhas.length) {
-    const inicioNarracao = texto.indexOf("NARRAÇÃO:");
-    const inicioCenas = texto.indexOf("CENAS:");
-    const narracao = inicioNarracao !== -1
-      ? texto.substring(inicioNarracao + "NARRAÇÃO:".length, inicioCenas !== -1 ? inicioCenas : texto.length).trim()
-      : texto.trim();
-    const palavras = narracao.split(/\s+/).filter(Boolean);
-    linhas = [];
-    for (let i = 0; i < palavras.length; i += 7) {
-      linhas.push(palavras.slice(i, i + 7).join(" "));
+  narracao = narracao
+    .replace(/\s+/g, " ")
+    .replace(/[“”"]/g, "")
+    .trim();
+
+  return narracao;
+}
+
+function criarBlocosSincronizados(roteiro) {
+  const narracao = extrairNarracaoParaLegendas(roteiro);
+  const palavras = narracao.split(/\s+/).filter(Boolean);
+
+  if (!palavras.length) return [];
+
+  const maxBlocos = 8;
+  const alvo = Math.max(4, Math.ceil(palavras.length / maxBlocos));
+  const blocos = [];
+  let atual = [];
+
+  for (const palavra of palavras) {
+    atual.push(palavra);
+
+    const terminouFrase = /[.!?;:]$/.test(palavra);
+    if (atual.length >= alvo || (terminouFrase && atual.length >= 3)) {
+      blocos.push(atual.join(" "));
+      atual = [];
     }
   }
-  return linhas.slice(0, 4);
+
+  if (atual.length) blocos.push(atual.join(" "));
+
+  while (blocos.length > maxBlocos) {
+    const ultimo = blocos.pop();
+    blocos[blocos.length - 1] += " " + ultimo;
+  }
+
+  return blocos;
 }
 
 function quebrarTextoSvg(texto, max = 16) {
@@ -516,7 +537,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       new Promise((resolve, reject) => writeFile(caminhoAudio, Buffer.from(audio, "base64"), e => e ? reject(e) : resolve()))
     ]);
 
-    const linhas = extrairLinhasLegenda(roteiro);
+    const linhas = criarBlocosSincronizados(roteiro);
     const caminhosCards = [];
     for (let i = 0; i < linhas.length; i++) {
       const caminho = `/tmp/card-legenda-${id}-${i}.png`;
@@ -526,7 +547,26 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     }
 
     const duracao = Math.max(8, Math.min(60, Number(duracaoAudio) || 20));
-    const passo = duracao / Math.max(1, linhas.length);
+
+    const pesos = linhas.map(linha => {
+      const palavras = linha.split(/\s+/).filter(Boolean).length;
+      const pausa = /[.!?]$/.test(linha.trim()) ? 1.2 : /[,;:]$/.test(linha.trim()) ? 0.5 : 0;
+      return Math.max(1, palavras + pausa);
+    });
+
+    const pesoTotal = pesos.reduce((soma, peso) => soma + peso, 0) || 1;
+    const tempos = [];
+    let cursorTempo = 0;
+
+    linhas.forEach((_, i) => {
+      const inicio = cursorTempo;
+      const parcela = (duracao * pesos[i]) / pesoTotal;
+      cursorTempo += parcela;
+      tempos.push({
+        inicio,
+        fim: i === linhas.length - 1 ? duracao : cursorTempo
+      });
+    });
 
     const argumentos = ["-loop", "1", "-i", caminhoImagem];
     if (audioEhPCM) {
@@ -539,13 +579,13 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     // BETA leve: mantém 720x1280, mas sem zoompan.
     // Isso reduz bastante o uso de CPU no Render e deixa a legenda mais confiável.
     const filtros = [
-      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=20,format=yuv420p[base]"
+      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24,format=yuv420p[base]"
     ];
 
     let anterior = "base";
     linhas.forEach((_, i) => {
-      const inicio = (i * passo).toFixed(2);
-      const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
+      const inicio = tempos[i].inicio.toFixed(2);
+      const fim = tempos[i].fim.toFixed(2);
       const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
       filtros.push(`[${i + 2}:v]format=rgba[card${i}]`);
       filtros.push(`[${anterior}][card${i}]overlay=30:800:enable='between(t,${inicio},${fim})'[${saida}]`);
@@ -559,6 +599,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       "-map", "[vout]",
       "-map", "1:a",
       "-c:v", "libx264",
+      "-r", "24",
       "-preset", "ultrafast",
       "-crf", "30",
       "-pix_fmt", "yuv420p",
