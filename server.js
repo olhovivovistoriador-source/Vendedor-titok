@@ -142,50 +142,110 @@ async function gerarAudioGemini(texto) {
     throw erro;
   }
 
-  const response = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": process.env.GEMINI_API_KEY
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: texto }] }],
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Kore" }
-            }
+  const modelos = ["gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts"];
+  let ultimoErro = null;
+
+  for (const modelo of modelos) {
+    for (let tentativa = 1; tentativa <= 2; tentativa++) {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 45000);
+
+      try {
+        console.log(`[TTS] Iniciando ${modelo} - tentativa ${tentativa}`);
+
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": process.env.GEMINI_API_KEY
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              contents: [{
+                role: "user",
+                parts: [{ text: texto }]
+              }],
+              generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: { voice: "Kore" }
+                }
+              }
+            })
           }
+        );
+
+        clearTimeout(timeout);
+        const textoResposta = await response.text();
+        let data = {};
+        try { data = textoResposta ? JSON.parse(textoResposta) : {}; } catch {}
+
+        if (!response.ok) {
+          const mensagem = data?.error?.message || `Gemini TTS respondeu HTTP ${response.status}`;
+          console.error(`[TTS] ${modelo} HTTP ${response.status}:`, mensagem);
+          ultimoErro = Object.assign(new Error(mensagem), {
+            status: response.status,
+            detalhes: data
+          });
+
+          if (response.status === 408 || response.status === 429 || response.status >= 500) {
+            await esperar(1000 * tentativa);
+            continue;
+          }
+          throw ultimoErro;
         }
-      })
+
+        const parteAudio = data?.candidates?.[0]?.content?.parts?.find(
+          parte => parte.inlineData?.data || parte.inline_data?.data
+        );
+        const inline = parteAudio?.inlineData || parteAudio?.inline_data;
+
+        if (!inline?.data) {
+          console.error(`[TTS] ${modelo} respondeu sem áudio.`, JSON.stringify(data).slice(0, 1200));
+          ultimoErro = Object.assign(new Error("O Gemini respondeu, mas não retornou áudio."), { status: 502 });
+          continue;
+        }
+
+        console.log(`[TTS] Áudio recebido com sucesso de ${modelo}.`);
+        return {
+          audio: inline.data,
+          mimeType: inline.mimeType || inline.mime_type || "audio/wav"
+        };
+      } catch (error) {
+        clearTimeout(timeout);
+
+        const causa = error?.cause || {};
+        const detalhesRede = [
+          `nome=${error?.name || "Erro"}`,
+          `mensagem=${error?.message || "sem mensagem"}`,
+          causa?.code ? `code=${causa.code}` : "",
+          causa?.errno ? `errno=${causa.errno}` : "",
+          causa?.address ? `address=${causa.address}` : ""
+        ].filter(Boolean).join(" | ");
+
+        console.error(`[TTS] Falha em ${modelo}, tentativa ${tentativa}: ${detalhesRede}`);
+        ultimoErro = error;
+
+        if (error?.name === "AbortError") {
+          ultimoErro = Object.assign(new Error("A geração de voz demorou mais de 45 segundos."), { status: 504 });
+        } else if (error?.message === "fetch failed") {
+          ultimoErro = Object.assign(new Error("Falha de conexão entre o servidor e o Gemini TTS."), {
+            status: 503,
+            detalhesRede
+          });
+        }
+
+        if (tentativa < 2) {
+          await esperar(1500 * tentativa);
+          continue;
+        }
+      }
     }
-  );
-
-  const data = await response.json();
-  if (!response.ok) {
-    const erro = new Error(data?.error?.message || "Erro ao gerar narração.");
-    erro.status = response.status;
-    erro.detalhes = data;
-    throw erro;
   }
 
-  const parteAudio = data?.candidates?.[0]?.content?.parts?.find(
-    parte => parte.inlineData?.data || parte.inline_data?.data
-  );
-  const inline = parteAudio?.inlineData || parteAudio?.inline_data;
-  if (!inline?.data) {
-    const erro = new Error("O Gemini não retornou áudio.");
-    erro.status = 502;
-    throw erro;
-  }
-
-  return {
-    audio: inline.data,
-    mimeType: inline.mimeType || inline.mime_type || "audio/L16;rate=24000"
-  };
+  throw ultimoErro || Object.assign(new Error("Não foi possível gerar a narração."), { status: 503 });
 }
 
 // GERAR NARRAÇÃO COM GEMINI
@@ -325,7 +385,12 @@ app.post("/api/video", async (req, res) => {
     if (caminhoImagem) unlink(caminhoImagem, () => {});
     if (caminhoAudio) unlink(caminhoAudio, () => {});
     if (caminhoVideo) unlink(caminhoVideo, () => {});
-    if (!res.headersSent) res.status(500).json({ error: "Erro ao montar o vídeo completo." });
+    if (!res.headersSent) {
+      const status = error.status || 500;
+      res.status(status).json({
+        error: error.message || "Erro ao montar o vídeo completo."
+      });
+    }
   }
 });
 
