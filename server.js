@@ -530,8 +530,10 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     }
     caminhosCards.forEach(caminho => argumentos.push("-i", caminho));
 
+    // BETA leve: mantém 720x1280, mas sem zoompan.
+    // Isso reduz bastante o uso de CPU no Render e deixa a legenda mais confiável.
     const filtros = [
-      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
+      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=20,format=yuv420p[base]"
     ];
 
     let anterior = "base";
@@ -552,7 +554,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       "-map", "1:a",
       "-c:v", "libx264",
       "-preset", "ultrafast",
-      "-crf", "31",
+      "-crf", "30",
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", "96k",
