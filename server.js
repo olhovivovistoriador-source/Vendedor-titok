@@ -519,7 +519,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     } else {
       argumentos.push("-i", caminhoAudio);
     }
-    caminhosCards.forEach(caminho => argumentos.push("-loop", "1", "-i", caminho));
+    caminhosCards.forEach(caminho => argumentos.push("-i", caminho));
 
     const filtros = [
       "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
@@ -543,7 +543,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       "-map", "1:a",
       "-c:v", "libx264",
       "-preset", "ultrafast",
-      "-crf", "29",
+      "-crf", "31",
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", "96k",
@@ -553,7 +553,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     );
 
     await new Promise((resolve, reject) => {
-      execFile(ffmpegPath, argumentos, { timeout: 55000 }, (error, stdout, stderr) => {
+      execFile(ffmpegPath, argumentos, { timeout: 90000 }, (error, stdout, stderr) => {
         if (error) {
           console.error("FFmpeg BETA:", stderr);
           reject(Object.assign(new Error("A versão beta de legendas não concluiu. O vídeo normal continua disponível."), { status: 500 }));
