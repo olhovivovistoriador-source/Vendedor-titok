@@ -3,7 +3,7 @@ import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: "12mb" }));
 app.use(express.static("public"));
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -221,29 +221,80 @@ app.post("/api/narracao", async (req, res) => {
 });
 
 app.post("/api/video", async (req, res) => {
+  let caminhoImagem = null;
+  let caminhoVideo = null;
+
   try {
-    const { roteiro } = req.body;
+    const { roteiro, imagem } = req.body;
 
     if (!roteiro) {
+      return res.status(400).json({ error: "Roteiro não recebido." });
+    }
+
+    if (!imagem || typeof imagem !== "string") {
       return res.status(400).json({
-        error: "Roteiro não recebido."
+        error: "Escolha uma foto do produto para gerar o vídeo."
       });
     }
 
-    const nomeArquivo = `video-${Date.now()}.mp4`;
-    const caminhoVideo = `/tmp/${nomeArquivo}`;
+    const correspondencia = imagem.match(
+      /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
+    );
 
-    // Evita o filtro drawtext, que não está disponível em todas as
-    // compilações do ffmpeg-static. testsrc2 gera um vídeo vertical
-    // animado e permite validar a geração de MP4 no Render.
+    if (!correspondencia) {
+      return res.status(400).json({
+        error: "Formato de imagem inválido. Use JPG, PNG ou WEBP."
+      });
+    }
+
+    const mimeType = correspondencia[1];
+    const base64 = correspondencia[2];
+    const extensoes = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp"
+    };
+
+    const id = Date.now();
+    caminhoImagem = `/tmp/produto-${id}.${extensoes[mimeType]}`;
+    caminhoVideo = `/tmp/video-${id}.mp4`;
+
+    const { writeFile, unlink } = await import("fs");
+    const bufferImagem = Buffer.from(base64, "base64");
+
+    if (bufferImagem.length > 8 * 1024 * 1024) {
+      return res.status(413).json({ error: "A foto deve ter no máximo 8 MB." });
+    }
+
+    await new Promise((resolve, reject) => {
+      writeFile(caminhoImagem, bufferImagem, erro => {
+        if (erro) reject(erro);
+        else resolve();
+      });
+    });
+
+    // Cria um MP4 vertical usando a foto real do produto.
+    // O movimento suave (zoom) deixa o resultado mais próximo de um vídeo
+    // e não depende do filtro drawtext que falhou no Render.
+    const filtro = [
+      "scale=900:1600:force_original_aspect_ratio=increase",
+      "crop=900:1600",
+      "zoompan=z='min(zoom+0.0008,1.10)':d=360:s=720x1280:fps=30",
+      "format=yuv420p"
+    ].join(",");
+
     const argumentos = [
-      "-f", "lavfi",
-      "-i", "testsrc2=size=720x1280:rate=30:duration=10",
+      "-loop", "1",
+      "-i", caminhoImagem,
+      "-vf", filtro,
+      "-t", "12",
+      "-r", "30",
       "-c:v", "libx264",
       "-preset", "veryfast",
-      "-crf", "28",
+      "-crf", "25",
       "-pix_fmt", "yuv420p",
       "-movflags", "+faststart",
+      "-an",
       "-y",
       caminhoVideo
     ];
@@ -259,10 +310,9 @@ app.post("/api/video", async (req, res) => {
       });
     });
 
-    res.download(caminhoVideo, "video-tiktok.mp4", (erroDownload) => {
-      import("fs").then(({ unlink }) => {
-        unlink(caminhoVideo, () => {});
-      });
+    res.download(caminhoVideo, "video-tiktok-produto.mp4", erroDownload => {
+      unlink(caminhoImagem, () => {});
+      unlink(caminhoVideo, () => {});
 
       if (erroDownload && !res.headersSent) {
         console.error("Erro no download do vídeo:", erroDownload);
@@ -273,8 +323,12 @@ app.post("/api/video", async (req, res) => {
   } catch (error) {
     console.error("Erro ao gerar vídeo:", error);
 
+    const { unlink } = await import("fs");
+    if (caminhoImagem) unlink(caminhoImagem, () => {});
+    if (caminhoVideo) unlink(caminhoVideo, () => {});
+
     res.status(500).json({
-      error: "Erro ao gerar o vídeo."
+      error: "Erro ao montar o vídeo do produto."
     });
   }
 });
