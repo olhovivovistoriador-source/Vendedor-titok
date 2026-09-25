@@ -214,10 +214,28 @@ app.post("/api/video", async (req, res) => {
       return res.status(400).json({ error: "Escolha uma foto do produto para gerar o vídeo." });
     }
     if (!audio || typeof audio !== "string") {
-      const textoParaVoz = String(textoNarracao || "").trim();
+      // O servidor não depende mais do navegador enviar textoNarracao.
+      // Se ele não vier, extraímos a seção NARRAÇÃO diretamente do roteiro.
+      let textoParaVoz = String(textoNarracao || "").trim();
+
       if (!textoParaVoz) {
-        return res.status(400).json({ error: "Texto da narração não recebido." });
+        const roteiroTexto = String(roteiro || "");
+        const marcadorNarracao = "NARRAÇÃO:";
+        const marcadorCenas = "CENAS:";
+        const inicioNarracao = roteiroTexto.indexOf(marcadorNarracao);
+        const inicioCenas = roteiroTexto.indexOf(marcadorCenas);
+
+        if (inicioNarracao !== -1) {
+          const inicio = inicioNarracao + marcadorNarracao.length;
+          textoParaVoz = (inicioCenas !== -1 && inicioCenas > inicioNarracao
+            ? roteiroTexto.substring(inicio, inicioCenas)
+            : roteiroTexto.substring(inicio)).trim();
+        }
       }
+
+      // Último fallback: usa o próprio roteiro para nunca falhar por campo ausente.
+      if (!textoParaVoz) textoParaVoz = String(roteiro || "").trim();
+
       const voz = await gerarAudioGemini(textoParaVoz);
       audio = voz.audio;
       audioMimeType = voz.mimeType;
