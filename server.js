@@ -222,82 +222,78 @@ app.post("/api/narracao", async (req, res) => {
 
 app.post("/api/video", async (req, res) => {
   let caminhoImagem = null;
+  let caminhoAudio = null;
   let caminhoVideo = null;
 
   try {
-    const { roteiro, imagem } = req.body;
+    const { roteiro, imagem, audio, audioMimeType } = req.body;
 
-    if (!roteiro) {
-      return res.status(400).json({ error: "Roteiro não recebido." });
-    }
-
+    if (!roteiro) return res.status(400).json({ error: "Roteiro não recebido." });
     if (!imagem || typeof imagem !== "string") {
-      return res.status(400).json({
-        error: "Escolha uma foto do produto para gerar o vídeo."
-      });
+      return res.status(400).json({ error: "Escolha uma foto do produto para gerar o vídeo." });
+    }
+    if (!audio || typeof audio !== "string") {
+      return res.status(400).json({ error: "A narração não foi recebida." });
     }
 
-    const correspondencia = imagem.match(
-      /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
-    );
-
+    const correspondencia = imagem.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
     if (!correspondencia) {
-      return res.status(400).json({
-        error: "Formato de imagem inválido. Use JPG, PNG ou WEBP."
-      });
+      return res.status(400).json({ error: "Formato de imagem inválido. Use JPG, PNG ou WEBP." });
     }
 
     const mimeType = correspondencia[1];
-    const base64 = correspondencia[2];
-    const extensoes = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp"
-    };
-
+    const extensoes = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
     const id = Date.now();
     caminhoImagem = `/tmp/produto-${id}.${extensoes[mimeType]}`;
     caminhoVideo = `/tmp/video-${id}.mp4`;
 
+    const tipoAudio = String(audioMimeType || "audio/L16;rate=24000").toLowerCase();
+    const audioEhPCM = tipoAudio.includes("l16") || tipoAudio.includes("pcm");
+    const extensaoAudio = tipoAudio.includes("wav") ? "wav" : tipoAudio.includes("mpeg") || tipoAudio.includes("mp3") ? "mp3" : "pcm";
+    caminhoAudio = `/tmp/narracao-${id}.${extensaoAudio}`;
+
     const { writeFile, unlink } = await import("fs");
-    const bufferImagem = Buffer.from(base64, "base64");
+    const bufferImagem = Buffer.from(correspondencia[2], "base64");
+    const bufferAudio = Buffer.from(audio, "base64");
 
     if (bufferImagem.length > 8 * 1024 * 1024) {
       return res.status(413).json({ error: "A foto deve ter no máximo 8 MB." });
     }
+    if (bufferAudio.length > 10 * 1024 * 1024) {
+      return res.status(413).json({ error: "A narração ficou grande demais." });
+    }
 
-    await new Promise((resolve, reject) => {
-      writeFile(caminhoImagem, bufferImagem, erro => {
-        if (erro) reject(erro);
-        else resolve();
-      });
-    });
+    await Promise.all([
+      new Promise((resolve, reject) => writeFile(caminhoImagem, bufferImagem, e => e ? reject(e) : resolve())),
+      new Promise((resolve, reject) => writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve()))
+    ]);
 
-    // Cria um MP4 vertical usando a foto real do produto.
-    // O movimento suave (zoom) deixa o resultado mais próximo de um vídeo
-    // e não depende do filtro drawtext que falhou no Render.
     const filtro = [
       "scale=900:1600:force_original_aspect_ratio=increase",
       "crop=900:1600",
-      "zoompan=z='min(zoom+0.0008,1.10)':d=360:s=720x1280:fps=30",
+      "zoompan=z='min(zoom+0.0005,1.12)':d=1800:s=720x1280:fps=30",
       "format=yuv420p"
     ].join(",");
 
-    const argumentos = [
-      "-loop", "1",
-      "-i", caminhoImagem,
+    const argumentos = ["-loop", "1", "-i", caminhoImagem];
+    if (audioEhPCM) {
+      argumentos.push("-f", "s16le", "-ar", "24000", "-ac", "1", "-i", caminhoAudio);
+    } else {
+      argumentos.push("-i", caminhoAudio);
+    }
+
+    argumentos.push(
       "-vf", filtro,
-      "-t", "12",
-      "-r", "30",
       "-c:v", "libx264",
       "-preset", "veryfast",
       "-crf", "25",
       "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "128k",
+      "-shortest",
       "-movflags", "+faststart",
-      "-an",
-      "-y",
-      caminhoVideo
-    ];
+      "-y", caminhoVideo
+    );
 
     await new Promise((resolve, reject) => {
       execFile(ffmpegPath, argumentos, (error, stdout, stderr) => {
@@ -310,28 +306,24 @@ app.post("/api/video", async (req, res) => {
       });
     });
 
-    res.download(caminhoVideo, "video-tiktok-produto.mp4", erroDownload => {
+    res.download(caminhoVideo, "video-tiktok-completo.mp4", erroDownload => {
       unlink(caminhoImagem, () => {});
+      unlink(caminhoAudio, () => {});
       unlink(caminhoVideo, () => {});
-
       if (erroDownload && !res.headersSent) {
-        console.error("Erro no download do vídeo:", erroDownload);
         res.status(500).json({ error: "Erro ao enviar o vídeo." });
       }
     });
-
   } catch (error) {
-    console.error("Erro ao gerar vídeo:", error);
-
+    console.error("Erro ao gerar vídeo completo:", error);
     const { unlink } = await import("fs");
     if (caminhoImagem) unlink(caminhoImagem, () => {});
+    if (caminhoAudio) unlink(caminhoAudio, () => {});
     if (caminhoVideo) unlink(caminhoVideo, () => {});
-
-    res.status(500).json({
-      error: "Erro ao montar o vídeo do produto."
-    });
+    if (!res.headersSent) res.status(500).json({ error: "Erro ao montar o vídeo completo." });
   }
 });
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
