@@ -492,8 +492,9 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     const audioEhPCM = tipoAudio.includes("l16") || tipoAudio.includes("pcm");
     const extensaoAudio = tipoAudio.includes("wav") ? "wav" : tipoAudio.includes("mpeg") || tipoAudio.includes("mp3") ? "mp3" : "pcm";
     const caminhoAudio = `/tmp/beta-audio-${id}.${extensaoAudio}`;
+    const caminhoBase = `/tmp/video-base-beta-${id}.mp4`;
     const caminhoVideo = `/tmp/video-legendas-beta-${id}.mp4`;
-    arquivos.push(caminhoImagem, caminhoAudio, caminhoVideo);
+    arquivos.push(caminhoImagem, caminhoAudio, caminhoBase, caminhoVideo);
 
     const { writeFile, unlink } = await import("fs");
     await Promise.all([
@@ -513,50 +514,88 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     const duracao = Math.max(8, Math.min(60, Number(duracaoAudio) || 20));
     const passo = duracao / Math.max(1, linhas.length);
 
-    const argumentos = ["-loop", "1", "-i", caminhoImagem];
+    // ETAPA 1: gera primeiro o mesmo vídeo-base da rota estável.
+    // As legendas não participam desta etapa, reduzindo bastante o peso do filtro.
+    const filtroBase = [
+      "scale=720:1280:force_original_aspect_ratio=increase",
+      "crop=720:1280",
+      "zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24",
+      "format=yuv420p"
+    ].join(",");
+
+    const argsBase = ["-loop", "1", "-i", caminhoImagem];
     if (audioEhPCM) {
-      argumentos.push("-f", "s16le", "-ar", "24000", "-ac", "1", "-i", caminhoAudio);
+      argsBase.push("-f", "s16le", "-ar", "24000", "-ac", "1", "-i", caminhoAudio);
     } else {
-      argumentos.push("-i", caminhoAudio);
+      argsBase.push("-i", caminhoAudio);
     }
-    caminhosCards.forEach(caminho => argumentos.push("-i", caminho));
 
-    const filtros = [
-      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
-    ];
-
-    let anterior = "base";
-    linhas.forEach((_, i) => {
-      const inicio = (i * passo).toFixed(2);
-      const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
-      const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
-      filtros.push(`[${i + 2}:v]format=rgba[card${i}]`);
-      filtros.push(`[${anterior}][card${i}]overlay=60:900:enable='between(t,${inicio},${fim})'[${saida}]`);
-      anterior = saida;
-    });
-
-    if (!linhas.length) filtros.push("[base]null[vout]");
-
-    argumentos.push(
-      "-filter_complex", filtros.join(";"),
-      "-map", "[vout]",
-      "-map", "1:a",
+    argsBase.push(
+      "-vf", filtroBase,
       "-c:v", "libx264",
       "-preset", "ultrafast",
-      "-crf", "31",
+      "-crf", "29",
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
       "-b:a", "96k",
       "-shortest",
       "-movflags", "+faststart",
+      "-y", caminhoBase
+    );
+
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, argsBase, { timeout: 90000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.error("FFmpeg BETA etapa base:", stderr);
+          reject(Object.assign(new Error("BETA falhou na etapa 1 (vídeo-base). O vídeo normal continua disponível."), { status: 500 }));
+          return;
+        }
+        resolve();
+      });
+    });
+
+    // ETAPA 2: aplica apenas as imagens de legenda sobre o MP4 já pronto.
+    // O áudio é copiado sem nova conversão.
+    const argsLegenda = ["-i", caminhoBase];
+    caminhosCards.forEach(caminho => argsLegenda.push("-i", caminho));
+
+    const filtros = [];
+    let anterior = "0:v";
+
+    linhas.forEach((_, i) => {
+      const inicio = (i * passo).toFixed(2);
+      const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
+      const cardInput = i + 1;
+      const cardNome = `card${i}`;
+      const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
+      filtros.push(`[${cardInput}:v]format=rgba[${cardNome}]`);
+      filtros.push(`[${anterior}][${cardNome}]overlay=60:900:eof_action=repeat:repeatlast=1:enable='between(t,${inicio},${fim})'[${saida}]`);
+      anterior = saida;
+    });
+
+    if (!linhas.length) {
+      filtros.push("[0:v]null[vout]");
+    }
+
+    argsLegenda.push(
+      "-filter_complex_threads", "1",
+      "-filter_complex", filtros.join(";"),
+      "-map", "[vout]",
+      "-map", "0:a:0",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "31",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "copy",
+      "-movflags", "+faststart",
       "-y", caminhoVideo
     );
 
     await new Promise((resolve, reject) => {
-      execFile(ffmpegPath, argumentos, { timeout: 90000 }, (error, stdout, stderr) => {
+      execFile(ffmpegPath, argsLegenda, { timeout: 90000 }, (error, stdout, stderr) => {
         if (error) {
-          console.error("FFmpeg BETA:", stderr);
-          reject(Object.assign(new Error("A versão beta de legendas não concluiu. O vídeo normal continua disponível."), { status: 500 }));
+          console.error("FFmpeg BETA etapa legendas:", stderr);
+          reject(Object.assign(new Error("BETA falhou na etapa 2 (aplicar legendas). O vídeo normal continua disponível."), { status: 500 }));
           return;
         }
         resolve();
