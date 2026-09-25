@@ -135,88 +135,69 @@ CTA:
     });
   }
 });
+async function gerarAudioGemini(texto) {
+  if (!process.env.GEMINI_API_KEY) {
+    const erro = new Error("GEMINI_API_KEY não configurada.");
+    erro.status = 500;
+    throw erro;
+  }
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: texto }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Kore" }
+            }
+          }
+        }
+      })
+    }
+  );
+
+  const data = await response.json();
+  if (!response.ok) {
+    const erro = new Error(data?.error?.message || "Erro ao gerar narração.");
+    erro.status = response.status;
+    erro.detalhes = data;
+    throw erro;
+  }
+
+  const parteAudio = data?.candidates?.[0]?.content?.parts?.find(
+    parte => parte.inlineData?.data || parte.inline_data?.data
+  );
+  const inline = parteAudio?.inlineData || parteAudio?.inline_data;
+  if (!inline?.data) {
+    const erro = new Error("O Gemini não retornou áudio.");
+    erro.status = 502;
+    throw erro;
+  }
+
+  return {
+    audio: inline.data,
+    mimeType: inline.mimeType || inline.mime_type || "audio/L16;rate=24000"
+  };
+}
+
 // GERAR NARRAÇÃO COM GEMINI
 app.post("/api/narracao", async (req, res) => {
   try {
     const { texto } = req.body;
-
-    if (!texto) {
-      return res.status(400).json({
-        error: "Texto da narração não informado."
-      });
-    }
-
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        error: "GEMINI_API_KEY não configurada."
-      });
-    }
-
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": process.env.GEMINI_API_KEY
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text:
-               texto
-            }]
-          }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: "Kore"
-                }
-              }
-            }
-          }
-        })
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Erro TTS Gemini:", data);
-
-      return res.status(response.status).json({
-        error:
-          data?.error?.message ||
-          "Erro ao gerar narração."
-      });
-    }
-
-    const parteAudio =
-      data?.candidates?.[0]?.content?.parts?.find(
-        parte => parte.inlineData?.data
-      );
-
-    if (!parteAudio) {
-      return res.status(500).json({
-        error: "O Gemini não retornou áudio."
-      });
-    }
-
-    res.json({
-      audio: parteAudio.inlineData.data,
-      mimeType:
-        parteAudio.inlineData.mimeType ||
-        "audio/L16;rate=24000"
-    });
-
+    if (!texto) return res.status(400).json({ error: "Texto da narração não informado." });
+    const resultado = await gerarAudioGemini(texto);
+    res.json(resultado);
   } catch (error) {
-    console.error("Erro na narração:", error);
-
-    res.status(500).json({
-      error: "Erro interno ao gerar narração."
-    });
+    console.error("Erro na narração:", error.detalhes || error);
+    res.status(error.status || 500).json({ error: error.message || "Erro interno ao gerar narração." });
   }
 });
 
@@ -226,14 +207,20 @@ app.post("/api/video", async (req, res) => {
   let caminhoVideo = null;
 
   try {
-    const { roteiro, imagem, audio, audioMimeType } = req.body;
+    let { roteiro, imagem, audio, audioMimeType, textoNarracao } = req.body;
 
     if (!roteiro) return res.status(400).json({ error: "Roteiro não recebido." });
     if (!imagem || typeof imagem !== "string") {
       return res.status(400).json({ error: "Escolha uma foto do produto para gerar o vídeo." });
     }
     if (!audio || typeof audio !== "string") {
-      return res.status(400).json({ error: "A narração não foi recebida." });
+      const textoParaVoz = String(textoNarracao || "").trim();
+      if (!textoParaVoz) {
+        return res.status(400).json({ error: "Texto da narração não recebido." });
+      }
+      const voz = await gerarAudioGemini(textoParaVoz);
+      audio = voz.audio;
+      audioMimeType = voz.mimeType;
     }
 
     const correspondencia = imagem.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
