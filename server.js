@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import sharp from "sharp";
 const app = express();
 
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "50mb" }));
 app.use(express.static("public"));
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -631,6 +631,230 @@ app.post("/api/video-legendas-beta", async (req, res) => {
     if (!res.headersSent) {
       res.status(error.status || 500).json({
         error: error.message || "Erro na versão beta. Use o botão de vídeo normal."
+      });
+    }
+  }
+});
+
+
+
+// VÍDEO DO PRODUTO COMO BASE + NARRAÇÃO + LEGENDAS
+// Endpoint separado para não alterar o fluxo estável com foto.
+app.post("/api/video-clipe-legendas", async (req, res) => {
+  let arquivos = [];
+
+  try {
+    const {
+      roteiro,
+      video,
+      videoNome,
+      audio,
+      audioMimeType,
+      duracaoAudio
+    } = req.body;
+
+    if (!roteiro || !video || !audio) {
+      return res.status(400).json({
+        error: "Roteiro, vídeo do produto e narração são obrigatórios."
+      });
+    }
+
+    const nome = String(videoNome || "").toLowerCase();
+    const extensao = nome.endsWith(".mov")
+      ? "mov"
+      : nome.endsWith(".webm")
+        ? "webm"
+        : nome.endsWith(".mp4")
+          ? "mp4"
+          : null;
+
+    if (!extensao) {
+      return res.status(400).json({
+        error: "Use vídeo MP4, MOV ou WebM."
+      });
+    }
+
+    const correspondenciaVideo = String(video).match(
+      /^data:(?:video\/[^;]+|application\/octet-stream);base64,(.+)$/
+    );
+
+    if (!correspondenciaVideo) {
+      return res.status(400).json({
+        error: "Não foi possível ler o arquivo de vídeo."
+      });
+    }
+
+    const bufferVideo = Buffer.from(correspondenciaVideo[1], "base64");
+    const bufferAudio = Buffer.from(audio, "base64");
+
+    if (bufferVideo.length > 20 * 1024 * 1024) {
+      return res.status(413).json({
+        error: "O vídeo deve ter no máximo 20 MB."
+      });
+    }
+
+    if (bufferAudio.length > 10 * 1024 * 1024) {
+      return res.status(413).json({
+        error: "A narração deve ter no máximo 10 MB."
+      });
+    }
+
+    const id = Date.now();
+    const caminhoClipe = `/tmp/clipe-produto-${id}.${extensao}`;
+
+    const tipoAudio = String(audioMimeType || "audio/wav").toLowerCase();
+    const audioEhPCM = tipoAudio.includes("l16") || tipoAudio.includes("pcm");
+    const extensaoAudio = tipoAudio.includes("wav")
+      ? "wav"
+      : tipoAudio.includes("mpeg") || tipoAudio.includes("mp3")
+        ? "mp3"
+        : "pcm";
+
+    const caminhoAudio = `/tmp/clipe-audio-${id}.${extensaoAudio}`;
+    const caminhoSaida = `/tmp/clipe-tiktok-${id}.mp4`;
+
+    arquivos.push(caminhoClipe, caminhoAudio, caminhoSaida);
+
+    const { writeFile, unlink } = await import("fs");
+
+    await Promise.all([
+      new Promise((resolve, reject) =>
+        writeFile(caminhoClipe, bufferVideo, e => e ? reject(e) : resolve())
+      ),
+      new Promise((resolve, reject) =>
+        writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve())
+      )
+    ]);
+
+    const linhas = criarBlocosSincronizados(roteiro);
+    const caminhosCards = [];
+
+    for (let i = 0; i < linhas.length; i++) {
+      const caminho = `/tmp/card-clipe-${id}-${i}.png`;
+      await criarCardLegendaPNG(linhas[i], caminho);
+      caminhosCards.push(caminho);
+      arquivos.push(caminho);
+    }
+
+    const duracao = Math.max(5, Math.min(60, Number(duracaoAudio) || 20));
+
+    const pesos = linhas.map(linha => {
+      const palavras = linha.split(/\s+/).filter(Boolean).length;
+      const pausa = /[.!?]$/.test(linha.trim())
+        ? 1.2
+        : /[,;:]$/.test(linha.trim())
+          ? 0.5
+          : 0;
+      return Math.max(1, palavras + pausa);
+    });
+
+    const pesoTotal = pesos.reduce((soma, peso) => soma + peso, 0) || 1;
+    const tempos = [];
+    let cursorTempo = 0;
+
+    linhas.forEach((_, i) => {
+      const inicio = cursorTempo;
+      const parcela = (duracao * pesos[i]) / pesoTotal;
+      cursorTempo += parcela;
+
+      tempos.push({
+        inicio,
+        fim: i === linhas.length - 1 ? duracao : cursorTempo
+      });
+    });
+
+    // Se o clipe for menor que a narração, ele repete automaticamente.
+    const argumentos = ["-stream_loop", "-1", "-i", caminhoClipe];
+
+    if (audioEhPCM) {
+      argumentos.push(
+        "-f", "s16le",
+        "-ar", "24000",
+        "-ac", "1",
+        "-i", caminhoAudio
+      );
+    } else {
+      argumentos.push("-i", caminhoAudio);
+    }
+
+    caminhosCards.forEach(caminho => argumentos.push("-i", caminho));
+
+    const filtros = [
+      "[0:v]setpts=PTS-STARTPTS,scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=24,format=yuv420p[base]"
+    ];
+
+    let anterior = "base";
+
+    linhas.forEach((_, i) => {
+      const inicio = tempos[i].inicio.toFixed(2);
+      const fim = tempos[i].fim.toFixed(2);
+      const saida = i === linhas.length - 1 ? "vout" : `vclip${i}`;
+
+      filtros.push(`[${i + 2}:v]format=rgba[cardclip${i}]`);
+      filtros.push(
+        `[${anterior}][cardclip${i}]overlay=30:800:enable='between(t,${inicio},${fim})'[${saida}]`
+      );
+
+      anterior = saida;
+    });
+
+    if (!linhas.length) {
+      filtros.push("[base]null[vout]");
+    }
+
+    argumentos.push(
+      "-filter_complex", filtros.join(";"),
+      "-map", "[vout]",
+      "-map", "1:a",
+      "-r", "24",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "30",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "96k",
+      "-shortest",
+      "-movflags", "+faststart",
+      "-y", caminhoSaida
+    );
+
+    await new Promise((resolve, reject) => {
+      execFile(
+        ffmpegPath,
+        argumentos,
+        { timeout: 90000 },
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error("FFmpeg CLIPE:", stderr);
+            reject(
+              Object.assign(
+                new Error("Não foi possível montar o vídeo enviado."),
+                { status: 500 }
+              )
+            );
+            return;
+          }
+          resolve();
+        }
+      );
+    });
+
+    res.download(
+      caminhoSaida,
+      "video-tiktok-clipe-com-legendas.mp4",
+      () => {
+        arquivos.forEach(a => unlink(a, () => {}));
+      }
+    );
+
+  } catch (error) {
+    console.error("Erro no clipe com legendas:", error);
+    const { unlink } = await import("fs");
+    arquivos.forEach(a => unlink(a, () => {}));
+
+    if (!res.headersSent) {
+      res.status(error.status || 500).json({
+        error: error.message || "Erro ao montar o vídeo enviado."
       });
     }
   }
