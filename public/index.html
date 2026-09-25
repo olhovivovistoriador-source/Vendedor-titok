@@ -340,126 +340,6 @@ document.getElementById("fotoProduto").addEventListener("change", async (evento)
     document.getElementById("fotoStatus").textContent = "✅ Foto selecionada: " + arquivo.name;
 });
 
-
-function extrairNarracaoDoRoteiro(roteiro) {
-    let texto = String(roteiro || "");
-    const inicio = texto.indexOf("NARRAÇÃO:");
-    const fim = texto.indexOf("CENAS:");
-    if (inicio !== -1) {
-        const de = inicio + "NARRAÇÃO:".length;
-        texto = (fim !== -1 && fim > inicio ? texto.substring(de, fim) : texto.substring(de)).trim();
-    }
-    return texto;
-}
-
-function quebrarEmBlocosTikTok(texto, tamanho = 4) {
-    const palavras = String(texto || "").trim().split(/\s+/).filter(Boolean);
-    const blocos = [];
-    for (let i = 0; i < palavras.length; i += tamanho) {
-        blocos.push(palavras.slice(i, i + tamanho).join(" "));
-    }
-    return blocos;
-}
-
-function criarPNGTextoTikTok(texto, tipo = "legenda") {
-    const canvas = document.createElement("canvas");
-    canvas.width = 720;
-    canvas.height = 1280;
-    const ctx = canvas.getContext("2d");
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.lineJoin = "round";
-
-    let tamanho = tipo === "cta" ? 58 : 64;
-    ctx.font = `900 ${tamanho}px Arial`;
-    ctx.lineWidth = 12;
-    ctx.strokeStyle = "rgba(0,0,0,0.92)";
-    ctx.fillStyle = tipo === "preco" ? "#FFE600" : "#FFFFFF";
-
-    const maxLargura = 620;
-    const palavras = String(texto || "").toUpperCase().split(/\s+/);
-    const linhas = [];
-    let linha = "";
-
-    for (const palavra of palavras) {
-        const teste = linha ? linha + " " + palavra : palavra;
-        if (ctx.measureText(teste).width > maxLargura && linha) {
-            linhas.push(linha);
-            linha = palavra;
-        } else {
-            linha = teste;
-        }
-    }
-    if (linha) linhas.push(linha);
-
-    const alturaLinha = tamanho * 1.08;
-    const yCentro = tipo === "legenda" ? 930 : 235;
-    const yInicial = yCentro - ((linhas.length - 1) * alturaLinha) / 2;
-
-    linhas.forEach((l, idx) => {
-        const y = yInicial + idx * alturaLinha;
-        ctx.strokeText(l, 360, y);
-        ctx.fillText(l, 360, y);
-    });
-
-    return canvas.toDataURL("image/png");
-}
-
-async function obterDuracaoAudio(audioPlayer) {
-    if (Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0) {
-        return audioPlayer.duration;
-    }
-    return await new Promise((resolve) => {
-        const finalizar = () => resolve(
-            Number.isFinite(audioPlayer.duration) && audioPlayer.duration > 0
-                ? audioPlayer.duration
-                : 20
-        );
-        audioPlayer.addEventListener("loadedmetadata", finalizar, { once: true });
-        setTimeout(finalizar, 1500);
-    });
-}
-
-async function montarLegendasTikTok(roteiro) {
-    const audioPlayer = document.getElementById("audioPlayer");
-    const duracao = await obterDuracaoAudio(audioPlayer);
-    const narracao = extrairNarracaoDoRoteiro(roteiro);
-    const blocos = quebrarEmBlocosTikTok(narracao, 4);
-    const itens = [];
-
-    if (blocos.length) {
-        const passo = duracao / blocos.length;
-        blocos.forEach((texto, i) => {
-            itens.push({
-                imagem: criarPNGTextoTikTok(texto, "legenda"),
-                inicio: i * passo,
-                fim: Math.min(duracao, (i + 1) * passo)
-            });
-        });
-    }
-
-    const preco = String(roteiro || "").match(/R\$\s*\d+(?:[.,]\d{1,2})?/i);
-    if (preco && duracao > 4) {
-        itens.push({
-            imagem: criarPNGTextoTikTok(preco[0], "preco"),
-            inicio: Math.max(0, duracao - 5),
-            fim: Math.max(1, duracao - 2.5)
-        });
-    }
-
-    if (duracao > 2.5) {
-        itens.push({
-            imagem: criarPNGTextoTikTok("COMPRE AGORA • LINK NA BIO", "cta"),
-            inicio: Math.max(0, duracao - 2.5),
-            fim: duracao
-        });
-    }
-
-    return itens;
-}
-
 async function gerarVideo() {
     const roteiro = document.getElementById("resultado").innerText;
     const arquivo = document.getElementById("fotoProduto").files[0];
@@ -527,8 +407,7 @@ async function gerarVideo() {
                 roteiro,
                 imagem,
                 audio: audioGeradoBase64,
-                audioMimeType: audioGeradoMimeType,
-                legendas: await montarLegendasTikTok(roteiro)
+                audioMimeType: audioGeradoMimeType
             })
         });
 
