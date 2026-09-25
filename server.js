@@ -461,18 +461,20 @@ function quebrarTextoSvg(texto, max = 18) {
 
 async function criarCardLegendaPNG(texto, destino) {
   const linhas = quebrarTextoSvg(texto);
-  const espacamento = 46;
-  const tspans = linhas.map((linha, i) =>
-    `<tspan x="330" dy="${i === 0 ? 0 : espacamento}">${escaparXml(linha)}</tspan>`
-  ).join("");
+  const espacamento = 44;
 
-  const y = linhas.length === 1 ? 112 : linhas.length === 2 ? 88 : 66;
+  const tspans = linhas.map((linha, i) => {
+    const destaque = i === linhas.length - 1 ? "#FFE600" : "#FFFFFF";
+    return `<tspan x="330" dy="${i === 0 ? 0 : espacamento}" fill="${destaque}">${escaparXml(linha)}</tspan>`;
+  }).join("");
+
+  const y = linhas.length === 1 ? 112 : linhas.length === 2 ? 90 : 68;
   const svg = `
   <svg width="660" height="220" xmlns="http://www.w3.org/2000/svg">
-    <rect x="6" y="6" width="648" height="208" rx="26" fill="rgba(0,0,0,0.68)"/>
+    <rect x="18" y="24" width="624" height="172" rx="30" fill="rgba(0,0,0,0.56)"/>
     <text x="330" y="${y}" text-anchor="middle"
-      font-family="Arial, sans-serif" font-size="40" font-weight="900"
-      fill="white" stroke="black" stroke-width="3" paint-order="stroke">
+      font-family="Arial, sans-serif" font-size="38" font-weight="900"
+      fill="#FFFFFF" stroke="black" stroke-width="3" paint-order="stroke">
       ${tspans}
     </text>
   </svg>`;
@@ -543,7 +545,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
       const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
       filtros.push(`[${i + 2}:v]format=rgba[card${i}]`);
-      filtros.push(`[${anterior}][card${i}]overlay=30:860:enable='between(t,${inicio},${fim})'[${saida}]`);
+      filtros.push(`[${anterior}][card${i}]overlay=30:800:enable='between(t,${inicio},${fim})'[${saida}]`);
       anterior = saida;
     });
 
