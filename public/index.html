@@ -179,6 +179,10 @@
       📝 Baixar legendas (.SRT)
     </button>
 
+    <button id="gerarVideoLegendasBeta" onclick="gerarVideoLegendasBeta()" style="margin-top:12px;">
+      🧪 Gerar vídeo com legendas (BETA)
+    </button>
+
     <button onclick="copiarRoteiro()">
       📋 Copiar roteiro
     </button>
@@ -423,6 +427,70 @@ async function baixarLegendasSRT() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
+}
+
+
+async function gerarVideoLegendasBeta() {
+    const roteiro = document.getElementById("resultado").innerText;
+    const arquivo = document.getElementById("fotoProduto").files[0];
+
+    if (!roteiro || !arquivo) {
+        alert("Gere o roteiro e escolha a foto do produto primeiro.");
+        return;
+    }
+
+    if (!audioGeradoBase64) {
+        alert("Gere a narração primeiro. O vídeo normal continua funcionando.");
+        return;
+    }
+
+    const botao = document.getElementById("gerarVideoLegendasBeta");
+    botao.disabled = true;
+    botao.textContent = "🧪 Montando versão com legendas...";
+
+    try {
+        const imagem = await arquivoParaDataURL(arquivo);
+        const player = document.getElementById("audioPlayer");
+        const duracaoAudio = Number.isFinite(player.duration) && player.duration > 0 ? player.duration : 20;
+
+        const resposta = await fetch("/api/video-legendas-beta", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                roteiro,
+                imagem,
+                audio: audioGeradoBase64,
+                audioMimeType: audioGeradoMimeType,
+                duracaoAudio
+            })
+        });
+
+        if (!resposta.ok) {
+            let mensagem = "A versão BETA com legendas não concluiu. Use o botão de vídeo normal.";
+            try {
+                const dados = await resposta.json();
+                if (dados.error) mensagem = dados.error;
+            } catch (_) {}
+            throw new Error(mensagem);
+        }
+
+        const blob = await resposta.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "video-tiktok-com-legendas-beta.mp4";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+        alert("✅ Versão BETA com legendas gerada.");
+    } catch (erro) {
+        alert(erro.message);
+    } finally {
+        botao.disabled = false;
+        botao.textContent = "🧪 Gerar vídeo com legendas (BETA)";
+    }
 }
 
 async function gerarVideo() {
