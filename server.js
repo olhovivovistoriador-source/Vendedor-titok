@@ -1,6 +1,7 @@
 import express from "express";
 import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
+import sharp from "sharp";
 const app = express();
 
 app.use(express.json({ limit: "12mb" }));
@@ -394,6 +395,189 @@ app.post("/api/video", async (req, res) => {
     }
   }
 });
+
+
+function escaparXml(texto) {
+  return String(texto || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function extrairLinhasLegenda(roteiro) {
+  const texto = String(roteiro || "");
+  const inicio = texto.indexOf("LEGENDAS:");
+  const fim = texto.indexOf("CTA:");
+  let trecho = inicio !== -1
+    ? texto.substring(inicio + "LEGENDAS:".length, fim !== -1 && fim > inicio ? fim : texto.length)
+    : "";
+
+  let linhas = trecho.split(/\n+/)
+    .map(l => l.replace(/^\s*[-•]\s*/, "").trim())
+    .filter(Boolean);
+
+  if (!linhas.length) {
+    const inicioNarracao = texto.indexOf("NARRAÇÃO:");
+    const inicioCenas = texto.indexOf("CENAS:");
+    const narracao = inicioNarracao !== -1
+      ? texto.substring(inicioNarracao + "NARRAÇÃO:".length, inicioCenas !== -1 ? inicioCenas : texto.length).trim()
+      : texto.trim();
+    const palavras = narracao.split(/\s+/).filter(Boolean);
+    linhas = [];
+    for (let i = 0; i < palavras.length; i += 7) {
+      linhas.push(palavras.slice(i, i + 7).join(" "));
+    }
+  }
+  return linhas.slice(0, 4);
+}
+
+function quebrarTextoSvg(texto, max = 24) {
+  const palavras = String(texto || "").toUpperCase().split(/\s+/).filter(Boolean);
+  const linhas = [];
+  let atual = "";
+  for (const palavra of palavras) {
+    const teste = atual ? `${atual} ${palavra}` : palavra;
+    if (teste.length > max && atual) {
+      linhas.push(atual);
+      atual = palavra;
+    } else {
+      atual = teste;
+    }
+  }
+  if (atual) linhas.push(atual);
+  return linhas.slice(0, 2);
+}
+
+async function criarCardLegendaPNG(texto, destino) {
+  const linhas = quebrarTextoSvg(texto);
+  const tspans = linhas.map((linha, i) =>
+    `<tspan x="300" dy="${i === 0 ? 0 : 58}">${escaparXml(linha)}</tspan>`
+  ).join("");
+
+  const y = linhas.length > 1 ? 66 : 92;
+  const svg = `
+  <svg width="600" height="180" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="8" width="584" height="164" rx="28" fill="rgba(0,0,0,0.68)"/>
+    <text x="300" y="${y}" text-anchor="middle"
+      font-family="Arial, sans-serif" font-size="48" font-weight="900"
+      fill="white" stroke="black" stroke-width="3" paint-order="stroke">
+      ${tspans}
+    </text>
+  </svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(destino);
+}
+
+// Endpoint BETA separado: não altera /api/video, que continua sendo a versão estável.
+app.post("/api/video-legendas-beta", async (req, res) => {
+  let arquivos = [];
+
+  try {
+    const { roteiro, imagem, audio, audioMimeType, duracaoAudio } = req.body;
+
+    if (!roteiro || !imagem || !audio) {
+      return res.status(400).json({ error: "Roteiro, foto e narração são obrigatórios." });
+    }
+
+    const correspondencia = imagem.match(/^data:(image\/(?:jpeg|png|webp));base64,(.+)$/);
+    if (!correspondencia) {
+      return res.status(400).json({ error: "Formato de imagem inválido." });
+    }
+
+    const id = Date.now();
+    const extensoes = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+    const caminhoImagem = `/tmp/beta-produto-${id}.${extensoes[correspondencia[1]]}`;
+    const tipoAudio = String(audioMimeType || "audio/L16;rate=24000").toLowerCase();
+    const audioEhPCM = tipoAudio.includes("l16") || tipoAudio.includes("pcm");
+    const extensaoAudio = tipoAudio.includes("wav") ? "wav" : tipoAudio.includes("mpeg") || tipoAudio.includes("mp3") ? "mp3" : "pcm";
+    const caminhoAudio = `/tmp/beta-audio-${id}.${extensaoAudio}`;
+    const caminhoVideo = `/tmp/video-legendas-beta-${id}.mp4`;
+    arquivos.push(caminhoImagem, caminhoAudio, caminhoVideo);
+
+    const { writeFile, unlink } = await import("fs");
+    await Promise.all([
+      new Promise((resolve, reject) => writeFile(caminhoImagem, Buffer.from(correspondencia[2], "base64"), e => e ? reject(e) : resolve())),
+      new Promise((resolve, reject) => writeFile(caminhoAudio, Buffer.from(audio, "base64"), e => e ? reject(e) : resolve()))
+    ]);
+
+    const linhas = extrairLinhasLegenda(roteiro);
+    const caminhosCards = [];
+    for (let i = 0; i < linhas.length; i++) {
+      const caminho = `/tmp/card-legenda-${id}-${i}.png`;
+      await criarCardLegendaPNG(linhas[i], caminho);
+      caminhosCards.push(caminho);
+      arquivos.push(caminho);
+    }
+
+    const duracao = Math.max(8, Math.min(60, Number(duracaoAudio) || 20));
+    const passo = duracao / Math.max(1, linhas.length);
+
+    const argumentos = ["-loop", "1", "-i", caminhoImagem];
+    if (audioEhPCM) {
+      argumentos.push("-f", "s16le", "-ar", "24000", "-ac", "1", "-i", caminhoAudio);
+    } else {
+      argumentos.push("-i", caminhoAudio);
+    }
+    caminhosCards.forEach(caminho => argumentos.push("-loop", "1", "-i", caminho));
+
+    const filtros = [
+      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
+    ];
+
+    let anterior = "base";
+    linhas.forEach((_, i) => {
+      const inicio = (i * passo).toFixed(2);
+      const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
+      const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
+      filtros.push(`[${i + 2}:v]format=rgba[card${i}]`);
+      filtros.push(`[${anterior}][card${i}]overlay=60:900:enable='between(t,${inicio},${fim})'[${saida}]`);
+      anterior = saida;
+    });
+
+    if (!linhas.length) filtros.push("[base]null[vout]");
+
+    argumentos.push(
+      "-filter_complex", filtros.join(";"),
+      "-map", "[vout]",
+      "-map", "1:a",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "29",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "96k",
+      "-shortest",
+      "-movflags", "+faststart",
+      "-y", caminhoVideo
+    );
+
+    await new Promise((resolve, reject) => {
+      execFile(ffmpegPath, argumentos, { timeout: 55000 }, (error, stdout, stderr) => {
+        if (error) {
+          console.error("FFmpeg BETA:", stderr);
+          reject(Object.assign(new Error("A versão beta de legendas não concluiu. O vídeo normal continua disponível."), { status: 500 }));
+          return;
+        }
+        resolve();
+      });
+    });
+
+    res.download(caminhoVideo, "video-tiktok-com-legendas-beta.mp4", () => {
+      arquivos.forEach(a => unlink(a, () => {}));
+    });
+  } catch (error) {
+    console.error("Erro no vídeo com legendas BETA:", error);
+    const { unlink } = await import("fs");
+    arquivos.forEach(a => unlink(a, () => {}));
+    if (!res.headersSent) {
+      res.status(error.status || 500).json({
+        error: error.message || "Erro na versão beta. Use o botão de vídeo normal."
+      });
+    }
+  }
+});
+
 
 const PORT = process.env.PORT || 3000;
 
