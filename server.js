@@ -442,7 +442,7 @@ function extrairLinhasLegenda(roteiro) {
   return linhas.slice(0, 4);
 }
 
-function quebrarTextoSvg(texto, max = 24) {
+function quebrarTextoSvg(texto, max = 18) {
   const palavras = String(texto || "").toUpperCase().split(/\s+/).filter(Boolean);
   const linhas = [];
   let atual = "";
@@ -456,21 +456,22 @@ function quebrarTextoSvg(texto, max = 24) {
     }
   }
   if (atual) linhas.push(atual);
-  return linhas.slice(0, 2);
+  return linhas.slice(0, 3);
 }
 
 async function criarCardLegendaPNG(texto, destino) {
   const linhas = quebrarTextoSvg(texto);
+  const espacamento = 46;
   const tspans = linhas.map((linha, i) =>
-    `<tspan x="300" dy="${i === 0 ? 0 : 58}">${escaparXml(linha)}</tspan>`
+    `<tspan x="330" dy="${i === 0 ? 0 : espacamento}">${escaparXml(linha)}</tspan>`
   ).join("");
 
-  const y = linhas.length > 1 ? 66 : 92;
+  const y = linhas.length === 1 ? 112 : linhas.length === 2 ? 88 : 66;
   const svg = `
-  <svg width="600" height="180" xmlns="http://www.w3.org/2000/svg">
-    <rect x="8" y="8" width="584" height="164" rx="28" fill="rgba(0,0,0,0.68)"/>
-    <text x="300" y="${y}" text-anchor="middle"
-      font-family="Arial, sans-serif" font-size="48" font-weight="900"
+  <svg width="660" height="220" xmlns="http://www.w3.org/2000/svg">
+    <rect x="6" y="6" width="648" height="208" rx="26" fill="rgba(0,0,0,0.68)"/>
+    <text x="330" y="${y}" text-anchor="middle"
+      font-family="Arial, sans-serif" font-size="40" font-weight="900"
       fill="white" stroke="black" stroke-width="3" paint-order="stroke">
       ${tspans}
     </text>
@@ -542,7 +543,7 @@ app.post("/api/video-legendas-beta", async (req, res) => {
       const fim = Math.min(duracao, (i + 1) * passo).toFixed(2);
       const saida = i === linhas.length - 1 ? "vout" : `v${i}`;
       filtros.push(`[${i + 2}:v]format=rgba[card${i}]`);
-      filtros.push(`[${anterior}][card${i}]overlay=60:900:enable='between(t,${inicio},${fim})'[${saida}]`);
+      filtros.push(`[${anterior}][card${i}]overlay=30:860:enable='between(t,${inicio},${fim})'[${saida}]`);
       anterior = saida;
     });
 
