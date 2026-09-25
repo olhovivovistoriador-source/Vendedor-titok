@@ -124,6 +124,15 @@
       </div>
     </div>
 
+    <div style="margin:16px 0; padding:16px; border:2px solid #b56cff; border-radius:14px; background:#120d22;">
+      <label for="videoProduto" style="margin-top:0;font-size:18px;">🎥 OU ESCOLHA UM VÍDEO DO PRODUTO</label>
+      <input id="videoProduto" type="file" accept="video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm" style="padding:12px;background:#fff;color:#111;">
+      <p id="videoStatus" style="margin:8px 0 0;color:#d6b9ff;">Nenhum vídeo selecionado. Máximo: 20 MB.</p>
+      <div id="previewVideo" class="oculto" style="margin-top:10px;">
+        <video id="videoPreview" controls playsinline style="width:100%;max-height:340px;border-radius:12px;background:#000;"></video>
+      </div>
+    </div>
+
     <label>Preço</label>
     <input id="preco" placeholder="Ex.: R$ 49,90">
 
@@ -189,6 +198,10 @@
 
     <button id="gerarVideoLegendasBeta" onclick="gerarVideoLegendasBeta()" style="margin-top:12px;">
       🧪 Gerar vídeo com legendas (BETA)
+    </button>
+
+    <button id="gerarVideoClipe" onclick="gerarVideoClipe()" style="margin-top:12px;">
+      🎥 Gerar usando meu vídeo + legendas
     </button>
 
     <button onclick="copiarRoteiro()">
@@ -415,6 +428,46 @@ document.getElementById("audioLocal").addEventListener("change", async (evento) 
     }
 });
 
+
+let videoPreviewUrl = null;
+
+document.getElementById("videoProduto").addEventListener("change", (evento) => {
+    const arquivo = evento.target.files[0];
+    const status = document.getElementById("videoStatus");
+    const area = document.getElementById("previewVideo");
+    const player = document.getElementById("videoPreview");
+
+    if (!arquivo) {
+        status.textContent = "Nenhum vídeo selecionado. Máximo: 20 MB.";
+        area.classList.add("oculto");
+        return;
+    }
+
+    const nome = arquivo.name.toLowerCase();
+    const valido = nome.endsWith(".mp4") || nome.endsWith(".mov") || nome.endsWith(".webm");
+
+    if (!valido) {
+        alert("Escolha um vídeo MP4, MOV ou WebM.");
+        evento.target.value = "";
+        status.textContent = "Nenhum vídeo selecionado. Máximo: 20 MB.";
+        return;
+    }
+
+    if (arquivo.size > 20 * 1024 * 1024) {
+        alert("O vídeo deve ter no máximo 20 MB.");
+        evento.target.value = "";
+        status.textContent = "Nenhum vídeo selecionado. Máximo: 20 MB.";
+        return;
+    }
+
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+    videoPreviewUrl = URL.createObjectURL(arquivo);
+
+    player.src = videoPreviewUrl;
+    area.classList.remove("oculto");
+    status.textContent = "✅ Vídeo selecionado: " + arquivo.name;
+});
+
 document.getElementById("fotoProduto").addEventListener("change", async (evento) => {
     const arquivo = evento.target.files[0];
     if (!arquivo) return;
@@ -566,6 +619,93 @@ async function gerarVideoLegendasBeta() {
     } finally {
         botao.disabled = false;
         botao.textContent = "🧪 Gerar vídeo com legendas (BETA)";
+    }
+}
+
+
+async function gerarVideoClipe() {
+    const roteiro = document.getElementById("resultado").innerText;
+    const arquivoVideo = document.getElementById("videoProduto").files[0];
+
+    if (!roteiro) {
+        alert("Gere um roteiro primeiro.");
+        return;
+    }
+
+    if (!arquivoVideo) {
+        alert("Escolha um vídeo do produto.");
+        return;
+    }
+
+    if (!audioGeradoBase64) {
+        alert("Gere a narração ou carregue um arquivo WAV/MP3 já baixado.");
+        return;
+    }
+
+    if (arquivoVideo.size > 20 * 1024 * 1024) {
+        alert("O vídeo deve ter no máximo 20 MB.");
+        return;
+    }
+
+    const botao = document.getElementById("gerarVideoClipe");
+    botao.disabled = true;
+    botao.textContent = "🎥 Montando seu clipe...";
+
+    try {
+        const video = await arquivoParaDataURL(arquivoVideo);
+        const player = document.getElementById("audioPlayer");
+
+        const duracaoAudio =
+            Number.isFinite(player.duration) && player.duration > 0
+                ? player.duration
+                : 20;
+
+        const resposta = await fetch("/api/video-clipe-legendas", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                roteiro,
+                video,
+                videoNome: arquivoVideo.name,
+                audio: audioGeradoBase64,
+                audioMimeType: audioGeradoMimeType,
+                duracaoAudio
+            })
+        });
+
+        if (!resposta.ok) {
+            let mensagem = `Erro ao montar vídeo (HTTP ${resposta.status}).`;
+            try {
+                const dados = await resposta.json();
+                if (dados.error) mensagem = dados.error;
+            } catch (_) {}
+            throw new Error(mensagem);
+        }
+
+        const blob = await resposta.blob();
+
+        if (!blob.size) {
+            throw new Error("O servidor retornou um vídeo vazio.");
+        }
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "video-tiktok-clipe-com-legendas.mp4";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+        alert("✅ Vídeo enviado + narração + legendas gerado com sucesso.");
+
+    } catch (erro) {
+        alert("Erro: " + erro.message);
+
+    } finally {
+        botao.disabled = false;
+        botao.textContent = "🎥 Gerar usando meu vídeo + legendas";
     }
 }
 
