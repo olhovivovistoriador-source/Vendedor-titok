@@ -233,21 +233,25 @@ app.post("/api/video", async (req, res) => {
     const nomeArquivo = `video-${Date.now()}.mp4`;
     const caminhoVideo = `/tmp/${nomeArquivo}`;
 
+    // Evita o filtro drawtext, que não está disponível em todas as
+    // compilações do ffmpeg-static. testsrc2 gera um vídeo vertical
+    // animado e permite validar a geração de MP4 no Render.
     const argumentos = [
-  "-f", "lavfi",
-  "-i", "color=c=0x151525:s=720x1280:d=10",
-  "-vf",
-  "drawtext=text='VENDEDOR IA TIKTOK':fontcolor=white:fontsize=46:x=(w-text_w)/2:y=(h-text_h)/2",
-  "-c:v", "libx264",
-  "-pix_fmt", "yuv420p",
-  "-movflags", "+faststart",
-  "-y",
-  caminhoVideo
-];
+      "-f", "lavfi",
+      "-i", "testsrc2=size=720x1280:rate=30:duration=10",
+      "-c:v", "libx264",
+      "-preset", "veryfast",
+      "-crf", "28",
+      "-pix_fmt", "yuv420p",
+      "-movflags", "+faststart",
+      "-y",
+      caminhoVideo
+    ];
 
     await new Promise((resolve, reject) => {
-      execFile(ffmpegPath, argumentos, (error) => {
+      execFile(ffmpegPath, argumentos, (error, stdout, stderr) => {
         if (error) {
+          console.error("FFmpeg stderr:", stderr);
           reject(error);
           return;
         }
@@ -255,7 +259,16 @@ app.post("/api/video", async (req, res) => {
       });
     });
 
-    res.download(caminhoVideo, "video-tiktok.mp4");
+    res.download(caminhoVideo, "video-tiktok.mp4", (erroDownload) => {
+      import("fs").then(({ unlink }) => {
+        unlink(caminhoVideo, () => {});
+      });
+
+      if (erroDownload && !res.headersSent) {
+        console.error("Erro no download do vídeo:", erroDownload);
+        res.status(500).json({ error: "Erro ao enviar o vídeo." });
+      }
+    });
 
   } catch (error) {
     console.error("Erro ao gerar vídeo:", error);
