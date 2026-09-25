@@ -158,6 +158,14 @@
   🔊 Gerar narração
 </button>
 
+<div style="margin-top:12px; padding:14px; border:1px solid #2f4668; border-radius:14px; background:#081321;">
+  <label for="audioLocal" style="margin-top:0; font-size:15px;">🎧 Usar narração já baixada</label>
+  <input id="audioLocal" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" style="margin-bottom:4px;">
+  <p id="audioLocalStatus" style="margin:6px 0 0; color:#9bdfff; font-size:13px;">
+    Se o Gemini atingir o limite, selecione aqui um arquivo narracao.wav ou MP3.
+  </p>
+</div>
+
 <p id="statusNarracao" class="status oculto">
   🎙️ Gerando voz em português...
 </p>
@@ -323,7 +331,12 @@ const audioPlayer = document.getElementById("audioPlayer");
     audioArea.classList.remove("oculto");
 
   } catch (error) {
-    alert("Erro: " + error.message);
+    const mensagem = String(error.message || "");
+    if (mensagem.toLowerCase().includes("quota") || mensagem.toLowerCase().includes("rate-limit")) {
+      alert("Limite do Gemini atingido. Você pode usar um arquivo de narração já baixado logo abaixo.");
+    } else {
+      alert("Erro: " + mensagem);
+    }
 
   } finally {
     botao.disabled = false;
@@ -338,6 +351,69 @@ function arquivoParaDataURL(arquivo) {
         leitor.readAsDataURL(arquivo);
     });
 }
+
+
+document.getElementById("audioLocal").addEventListener("change", async (evento) => {
+    const arquivo = evento.target.files[0];
+    if (!arquivo) return;
+
+    if (arquivo.size > 10 * 1024 * 1024) {
+        alert("A narração deve ter no máximo 10 MB.");
+        evento.target.value = "";
+        return;
+    }
+
+    const nome = arquivo.name.toLowerCase();
+    const ehWav = nome.endsWith(".wav");
+    const ehMp3 = nome.endsWith(".mp3");
+
+    if (!ehWav && !ehMp3) {
+        alert("Use um arquivo WAV ou MP3.");
+        evento.target.value = "";
+        return;
+    }
+
+    try {
+        const dataUrl = await arquivoParaDataURL(arquivo);
+        const partes = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+
+        if (!partes) {
+            throw new Error("Não foi possível ler a narração.");
+        }
+
+        let mime = partes[1] || "";
+        if (!mime || mime === "application/octet-stream") {
+            mime = ehWav ? "audio/wav" : "audio/mpeg";
+        }
+
+        audioGeradoBase64 = partes[2];
+        audioGeradoMimeType = mime;
+
+        const player = document.getElementById("audioPlayer");
+        const baixar = document.getElementById("baixarAudio");
+        const area = document.getElementById("audioArea");
+        const statusLocal = document.getElementById("audioLocalStatus");
+
+        player.src = dataUrl;
+        baixar.href = dataUrl;
+        baixar.download = arquivo.name;
+        area.classList.remove("oculto");
+
+        await new Promise(resolve => {
+            if (player.readyState >= 1) return resolve();
+            player.addEventListener("loadedmetadata", resolve, { once: true });
+            setTimeout(resolve, 2500);
+        });
+
+        const duracao = Number.isFinite(player.duration)
+            ? ` (${Math.round(player.duration)}s)`
+            : "";
+
+        statusLocal.textContent = "✅ Narração carregada: " + arquivo.name + duracao;
+    } catch (erro) {
+        alert("Erro ao carregar narração: " + erro.message);
+    }
+});
 
 document.getElementById("fotoProduto").addEventListener("change", async (evento) => {
     const arquivo = evento.target.files[0];
