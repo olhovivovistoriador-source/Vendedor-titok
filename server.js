@@ -333,10 +333,11 @@ app.post("/api/video", async (req, res) => {
       new Promise((resolve, reject) => writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve()))
     ]);
 
+    // Configuração leve para evitar timeout no Render Free.
     const filtro = [
-      "scale=900:1600:force_original_aspect_ratio=increase",
-      "crop=900:1600",
-      "zoompan=z='min(zoom+0.0005,1.12)':d=1800:s=720x1280:fps=30",
+      "scale=720:1280:force_original_aspect_ratio=increase",
+      "crop=720:1280",
+      "zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24",
       "format=yuv420p"
     ].join(",");
 
@@ -350,11 +351,11 @@ app.post("/api/video", async (req, res) => {
     argumentos.push(
       "-vf", filtro,
       "-c:v", "libx264",
-      "-preset", "veryfast",
-      "-crf", "25",
+      "-preset", "ultrafast",
+      "-crf", "28",
       "-pix_fmt", "yuv420p",
       "-c:a", "aac",
-      "-b:a", "128k",
+      "-b:a", "96k",
       "-shortest",
       "-movflags", "+faststart",
       "-y", caminhoVideo
