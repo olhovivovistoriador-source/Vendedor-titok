@@ -3,7 +3,7 @@ import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
 const app = express();
 
-app.use(express.json({ limit: "12mb" }));
+app.use(express.json({ limit: "24mb" }));
 app.use(express.static("public"));
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -261,116 +261,14 @@ app.post("/api/narracao", async (req, res) => {
   }
 });
 
-
-function extrairSecaoRoteiro(roteiro, titulo, proximoTitulo) {
-  const texto = String(roteiro || "");
-  const inicio = texto.indexOf(titulo);
-  if (inicio === -1) return "";
-  const de = inicio + titulo.length;
-  const fim = proximoTitulo ? texto.indexOf(proximoTitulo, de) : -1;
-  return (fim !== -1 ? texto.substring(de, fim) : texto.substring(de)).trim();
-}
-
-function tempoASS(segundos) {
-  const s = Math.max(0, Number(segundos) || 0);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  const cs = Math.floor((s - Math.floor(s)) * 100);
-  return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}.${String(cs).padStart(2, "0")}`;
-}
-
-function limparTextoLegenda(texto) {
-  return String(texto || "")
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
-    .replace(/[{}]/g, "")
-    .trim();
-}
-
-function estimarDuracaoAudio(buffer, tipoAudio, textoNarracao) {
-  const tipo = String(tipoAudio || "").toLowerCase();
-
-  // PCM/L16 do Gemini: 24 kHz, mono, 16 bits.
-  if (tipo.includes("l16") || tipo.includes("pcm")) {
-    return Math.max(1, buffer.length / (24000 * 2));
-  }
-
-  // WAV: tenta ler byteRate e o tamanho do chunk data.
-  if (tipo.includes("wav") && buffer.length > 44) {
-    try {
-      const fmt = buffer.indexOf(Buffer.from("fmt "));
-      const data = buffer.indexOf(Buffer.from("data"));
-      if (fmt >= 0 && data >= 0 && data + 8 <= buffer.length) {
-        const byteRate = buffer.readUInt32LE(fmt + 12);
-        const dataSize = buffer.readUInt32LE(data + 4);
-        if (byteRate > 0 && dataSize > 0) return Math.max(1, dataSize / byteRate);
-      }
-    } catch (_) {}
-  }
-
-  // Fallback para formatos comprimidos.
-  const palavras = limparTextoLegenda(textoNarracao).split(/\s+/).filter(Boolean).length;
-  return Math.max(6, Math.min(35, palavras * 0.38));
-}
-
-function criarLegendasTikTok(textoNarracao, roteiro, duracao) {
-  const texto = limparTextoLegenda(textoNarracao);
-  const palavras = texto.split(/\s+/).filter(Boolean);
-  const linhas = [];
-
-  const cabecalho = `[Script Info]
-ScriptType: v4.00+
-PlayResX: 720
-PlayResY: 1280
-ScaledBorderAndShadow: yes
-WrapStyle: 2
-
-[V4+ Styles]
-Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
-Style: TikTok,Arial,58,&H00FFFFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,5,1,2,55,55,185,1
-Style: Destaque,Arial,64,&H0000FFFF,&H0000FFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,1,8,45,45,95,1
-Style: CTA,Arial,54,&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,-1,0,0,0,100,100,0,0,1,6,1,8,45,45,95,1
-
-[Events]
-Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text`;
-
-  if (palavras.length) {
-    const tempoPorPalavra = Math.max(0.16, duracao / palavras.length);
-    const grupo = 5;
-    for (let i = 0; i < palavras.length; i += grupo) {
-      const bloco = palavras.slice(i, i + grupo);
-      const inicio = i * tempoPorPalavra;
-      const fim = Math.min(duracao, (i + bloco.length) * tempoPorPalavra);
-      const centis = Math.max(1, Math.round(tempoPorPalavra * 100));
-      const karaoke = bloco.map(p => `{\\k${centis}}${p.toUpperCase()}`).join(" ");
-      linhas.push(`Dialogue: 0,${tempoASS(inicio)},${tempoASS(fim)},TikTok,,0,0,0,,${karaoke}`);
-    }
-  }
-
-  const preco = String(roteiro || "").match(/R\$\s*\d+(?:[.,]\d{1,2})?/i)?.[0];
-  if (preco && duracao > 4) {
-    const inicioPreco = Math.max(0, duracao - 5);
-    const fimPreco = Math.max(inicioPreco + 1, duracao - 2.4);
-    linhas.push(`Dialogue: 1,${tempoASS(inicioPreco)},${tempoASS(fimPreco)},Destaque,,0,0,0,,${preco.toUpperCase()}`);
-  }
-
-  if (duracao > 2.5) {
-    const inicioCTA = Math.max(0, duracao - 2.4);
-    linhas.push(`Dialogue: 2,${tempoASS(inicioCTA)},${tempoASS(duracao)},CTA,,0,0,0,,COMPRE AGORA - LINK NA BIO`);
-  }
-
-  return cabecalho + "\n" + linhas.join("\n") + "\n";
-}
-
 app.post("/api/video", async (req, res) => {
   let caminhoImagem = null;
   let caminhoAudio = null;
   let caminhoVideo = null;
-  let caminhoLegenda = null;
+  let caminhosLegendas = [];
 
   try {
-    let { roteiro, imagem, audio, audioMimeType, textoNarracao } = req.body;
+    let { roteiro, imagem, audio, audioMimeType, textoNarracao, legendas = [] } = req.body;
 
     if (!roteiro) return res.status(400).json({ error: "Roteiro não recebido." });
     if (!imagem || typeof imagem !== "string") {
@@ -414,7 +312,6 @@ app.post("/api/video", async (req, res) => {
     const id = Date.now();
     caminhoImagem = `/tmp/produto-${id}.${extensoes[mimeType]}`;
     caminhoVideo = `/tmp/video-${id}.mp4`;
-    caminhoLegenda = `/tmp/legendas-${id}.ass`;
 
     const tipoAudio = String(audioMimeType || "audio/L16;rate=24000").toLowerCase();
     const audioEhPCM = tipoAudio.includes("l16") || tipoAudio.includes("pcm");
@@ -432,24 +329,34 @@ app.post("/api/video", async (req, res) => {
       return res.status(413).json({ error: "A narração ficou grande demais." });
     }
 
-    const textoLegenda = extrairSecaoRoteiro(roteiro, "NARRAÇÃO:", "CENAS:") || String(roteiro || "");
-    const duracaoLegenda = estimarDuracaoAudio(bufferAudio, tipoAudio, textoLegenda);
-    const arquivoASS = criarLegendasTikTok(textoLegenda, roteiro, duracaoLegenda);
+    const legendasValidas = Array.isArray(legendas)
+      ? legendas.slice(0, 24).filter(item =>
+          item &&
+          typeof item.imagem === "string" &&
+          /^data:image\/png;base64,/.test(item.imagem) &&
+          Number.isFinite(Number(item.inicio)) &&
+          Number.isFinite(Number(item.fim)) &&
+          Number(item.fim) > Number(item.inicio)
+        )
+      : [];
 
-    await Promise.all([
+    caminhosLegendas = legendasValidas.map((_, indice) => `/tmp/legenda-${id}-${indice}.png`);
+
+    const gravacoes = [
       new Promise((resolve, reject) => writeFile(caminhoImagem, bufferImagem, e => e ? reject(e) : resolve())),
-      new Promise((resolve, reject) => writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve())),
-      new Promise((resolve, reject) => writeFile(caminhoLegenda, arquivoASS, "utf8", e => e ? reject(e) : resolve()))
-    ]);
+      new Promise((resolve, reject) => writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve()))
+    ];
 
-    // Configuração leve para evitar timeout no Render Free.
-    const filtro = [
-      "scale=720:1280:force_original_aspect_ratio=increase",
-      "crop=720:1280",
-      "zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24",
-      `subtitles=${caminhoLegenda}:force_style='FontName=Arial'`,
-      "format=yuv420p"
-    ].join(",");
+    legendasValidas.forEach((item, indice) => {
+      const base64 = item.imagem.replace(/^data:image\/png;base64,/, "");
+      gravacoes.push(
+        new Promise((resolve, reject) =>
+          writeFile(caminhosLegendas[indice], Buffer.from(base64, "base64"), e => e ? reject(e) : resolve())
+        )
+      );
+    });
+
+    await Promise.all(gravacoes);
 
     const argumentos = ["-loop", "1", "-i", caminhoImagem];
     if (audioEhPCM) {
@@ -458,8 +365,36 @@ app.post("/api/video", async (req, res) => {
       argumentos.push("-i", caminhoAudio);
     }
 
+    // Cada legenda já chega como uma imagem PNG transparente pronta.
+    // Isso evita drawtext/subtitles e preserva a montagem que já funcionava.
+    caminhosLegendas.forEach(caminho => {
+      argumentos.push("-loop", "1", "-i", caminho);
+    });
+
+    const filtros = [
+      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
+    ];
+
+    let anterior = "base";
+    legendasValidas.forEach((item, indice) => {
+      const saida = indice === legendasValidas.length - 1 ? "vout" : `v${indice}`;
+      const inicio = Math.max(0, Number(item.inicio)).toFixed(2);
+      const fim = Math.max(Number(item.inicio), Number(item.fim)).toFixed(2);
+      filtros.push(
+        `[${indice + 2}:v]format=rgba[ov${indice}];` +
+        `[${anterior}][ov${indice}]overlay=0:0:enable='between(t,${inicio},${fim})'[${saida}]`
+      );
+      anterior = saida;
+    });
+
+    if (!legendasValidas.length) {
+      filtros.push("[base]null[vout]");
+    }
+
     argumentos.push(
-      "-vf", filtro,
+      "-filter_complex", filtros.join(";"),
+      "-map", "[vout]",
+      "-map", "1:a",
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-crf", "28",
@@ -485,7 +420,7 @@ app.post("/api/video", async (req, res) => {
     res.download(caminhoVideo, "video-tiktok-completo.mp4", erroDownload => {
       unlink(caminhoImagem, () => {});
       unlink(caminhoAudio, () => {});
-      unlink(caminhoLegenda, () => {});
+      caminhosLegendas.forEach(caminho => unlink(caminho, () => {}));
       unlink(caminhoVideo, () => {});
       if (erroDownload && !res.headersSent) {
         res.status(500).json({ error: "Erro ao enviar o vídeo." });
@@ -496,7 +431,7 @@ app.post("/api/video", async (req, res) => {
     const { unlink } = await import("fs");
     if (caminhoImagem) unlink(caminhoImagem, () => {});
     if (caminhoAudio) unlink(caminhoAudio, () => {});
-    if (caminhoLegenda) unlink(caminhoLegenda, () => {});
+    caminhosLegendas.forEach(caminho => unlink(caminho, () => {}));
     if (caminhoVideo) unlink(caminhoVideo, () => {});
     if (!res.headersSent) {
       const status = error.status || 500;
