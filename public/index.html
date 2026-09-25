@@ -115,6 +115,15 @@
     <label>Produto *</label>
     <input id="produto" placeholder="Ex.: Mini aspirador portátil">
 
+    <div style="margin:16px 0; padding:16px; border:2px solid #39c6ff; border-radius:14px; background:#071827;">
+      <label for="fotoProduto" style="margin-top:0;font-size:18px;">📷 2. ESCOLHA A FOTO DO PRODUTO *</label>
+      <input id="fotoProduto" type="file" accept="image/jpeg,image/png,image/webp" style="padding:12px;background:#fff;color:#111;">
+      <p id="fotoStatus" style="margin:8px 0 0;color:#9bdfff;">Nenhuma foto selecionada.</p>
+      <div id="previewFoto" class="oculto" style="margin-top:10px;">
+        <img id="imagemPreview" alt="Prévia do produto" style="width:100%;max-height:300px;object-fit:contain;border-radius:12px;background:#fff;">
+      </div>
+    </div>
+
     <label>Preço</label>
     <input id="preco" placeholder="Ex.: R$ 49,90">
 
@@ -163,7 +172,7 @@
   </a>
 </div>
     <button id="gerarVideo" onclick="gerarVideo()" style="margin-top:15px;">
-    🎬 Gerar vídeo
+    🎬 Gerar vídeo com o produto
 </button>
 
     <button onclick="copiarRoteiro()">
@@ -306,54 +315,80 @@ const audioPlayer = document.getElementById("audioPlayer");
     status.classList.add("oculto");
   }
 }
+function arquivoParaDataURL(arquivo) {
+    return new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(leitor.result);
+        leitor.onerror = () => reject(new Error("Não foi possível ler a foto."));
+        leitor.readAsDataURL(arquivo);
+    });
+}
+
+document.getElementById("fotoProduto").addEventListener("change", async (evento) => {
+    const arquivo = evento.target.files[0];
+    if (!arquivo) return;
+    const dataUrl = await arquivoParaDataURL(arquivo);
+    document.getElementById("imagemPreview").src = dataUrl;
+    document.getElementById("previewFoto").classList.remove("oculto");
+    document.getElementById("fotoStatus").textContent = "✅ Foto selecionada: " + arquivo.name;
+});
+
 async function gerarVideo() {
     const roteiro = document.getElementById("resultado").innerText;
+    const arquivo = document.getElementById("fotoProduto").files[0];
 
     if (!roteiro) {
         alert("Gere um roteiro primeiro.");
         return;
     }
 
+    if (!arquivo) {
+        alert("Escolha uma foto do produto para criar o vídeo.");
+        return;
+    }
+
+    if (arquivo.size > 8 * 1024 * 1024) {
+        alert("A foto deve ter no máximo 8 MB.");
+        return;
+    }
+
     const botao = document.getElementById("gerarVideo");
     botao.disabled = true;
-    botao.textContent = "🎬 Gerando vídeo...";
+    botao.textContent = "🎬 Montando vídeo...";
 
     try {
+        const imagem = await arquivoParaDataURL(arquivo);
         const resposta = await fetch("/api/video", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                roteiro: roteiro
-            })
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roteiro, imagem })
         });
 
         if (!resposta.ok) {
-            const textoErro = await resposta.text();
-            throw new Error(textoErro || "Erro ao gerar vídeo.");
+            let mensagem = "Erro ao gerar vídeo.";
+            try {
+                const erro = await resposta.json();
+                mensagem = erro.error || mensagem;
+            } catch (_) {}
+            throw new Error(mensagem);
         }
 
         const videoBlob = await resposta.blob();
         const videoUrl = URL.createObjectURL(videoBlob);
-
         const link = document.createElement("a");
         link.href = videoUrl;
-        link.download = "video-tiktok.mp4";
+        link.download = "video-tiktok-produto.mp4";
         document.body.appendChild(link);
         link.click();
         link.remove();
-
-        setTimeout(() => URL.revokeObjectURL(videoUrl), 1000);
-
-        alert("🎬 Vídeo gerado com sucesso!");
+        setTimeout(() => URL.revokeObjectURL(videoUrl), 3000);
+        alert("🎬 Vídeo do produto gerado com sucesso!");
 
     } catch (error) {
         alert("Erro: " + error.message);
-
     } finally {
         botao.disabled = false;
-        botao.textContent = "🎬 Gerar vídeo";
+        botao.textContent = "🎬 Gerar vídeo com o produto";
     }
 }
 
