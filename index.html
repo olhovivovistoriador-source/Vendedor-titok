@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vendedor IA TikTok</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: #050914;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      max-width: 430px;
+      min-height: 100vh;
+      margin: auto;
+      padding: 25px 18px;
+    }
+
+    .logo {
+      font-size: 21px;
+      font-weight: bold;
+      margin-bottom: 35px;
+    }
+
+    .logo span { color: #55d9ff; }
+
+    h1 {
+      font-size: 35px;
+      line-height: 1.05;
+      margin-bottom: 12px;
+    }
+
+    h1 span { color: #b56cff; }
+
+    .descricao {
+      color: #aeb8ca;
+      line-height: 1.5;
+    }
+
+    .card {
+      background: #0c1423;
+      border: 1px solid #23334e;
+      border-radius: 18px;
+      padding: 18px;
+      margin-top: 25px;
+    }
+
+    label {
+      display: block;
+      color: #aeb8ca;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+
+    input, select {
+      width: 100%;
+      padding: 14px;
+      margin: 7px 0 10px;
+      border-radius: 12px;
+      border: 1px solid #263650;
+      background: #07101c;
+      color: white;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      padding: 17px;
+      margin-top: 12px;
+      border: 0;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: bold;
+      color: white;
+      background: linear-gradient(90deg,#8a35ff,#00b9f5);
+    }
+
+    button:disabled { opacity: .5; }
+
+    #resultado {
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+
+    .oculto { display: none; }
+
+    .status {
+      text-align: center;
+      color: #72d8ff;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="logo">🎬 Vendedor <span>IA TikTok</span></div>
+
+  <h1>Crie vídeos que <span>vendem</span></h1>
+
+  <p class="descricao">
+    Informe o produto e deixe a inteligência artificial criar
+    seu roteiro para TikTok sem você precisar aparecer.
+  </p>
+
+  <div class="card">
+
+    <label>Produto *</label>
+    <input id="produto" placeholder="Ex.: Mini aspirador portátil">
+
+    <div style="margin:16px 0; padding:16px; border:2px solid #39c6ff; border-radius:14px; background:#071827;">
+      <label for="fotoProduto" style="margin-top:0;font-size:18px;">📷 2. ESCOLHA A FOTO DO PRODUTO *</label>
+      <input id="fotoProduto" type="file" accept="image/jpeg,image/png,image/webp" style="padding:12px;background:#fff;color:#111;">
+      <p id="fotoStatus" style="margin:8px 0 0;color:#9bdfff;">Nenhuma foto selecionada.</p>
+      <div id="previewFoto" class="oculto" style="margin-top:10px;">
+        <img id="imagemPreview" alt="Prévia do produto" style="width:100%;max-height:300px;object-fit:contain;border-radius:12px;background:#fff;">
+      </div>
+    </div>
+
+    <label>Preço</label>
+    <input id="preco" placeholder="Ex.: R$ 49,90">
+
+    <label>Público-alvo</label>
+    <input id="publico" placeholder="Ex.: pessoas que cuidam do carro">
+
+    <label>Estilo do vídeo</label>
+
+    <select id="estilo">
+      <option>Viral</option>
+      <option>Oferta</option>
+      <option>Demonstração</option>
+      <option>Problema / Solução</option>
+    </select>
+
+    <button id="gerar" onclick="gerarRoteiro()">
+      ✨ Gerar roteiro com IA
+    </button>
+
+    <p id="status" class="status oculto">
+      🤖 A IA está criando seu roteiro...
+    </p>
+
+  </div>
+
+  <div id="cardResultado" class="card oculto">
+
+    <h2>🎥 Seu roteiro</h2>
+
+    <div id="resultado"></div>
+    <button id="gerarNarracao" onclick="gerarNarracao()" style="margin-top:18px;">
+  🔊 Gerar narração
+</button>
+
+<p id="statusNarracao" class="status oculto">
+  🎙️ Gerando voz em português...
+</p>
+
+<div id="audioArea" class="oculto" style="margin-top:15px;">
+  <audio id="audioPlayer" controls style="width:100%;"></audio>
+
+  <a id="baixarAudio" download="narracao.wav">
+    <button type="button" style="margin-top:10px;">
+      ⬇️ Baixar narração
+    </button>
+  </a>
+</div>
+    <button id="gerarVideo" onclick="gerarVideo()" style="margin-top:15px;">
+    🎬 Gerar vídeo completo
+</button>
+
+    <button onclick="copiarRoteiro()">
+      📋 Copiar roteiro
+    </button>
+
+  </div>
+
+</div>
+
+<script>
+
+async function gerarRoteiro() {
+
+  const produto = document.getElementById("produto").value.trim();
+
+  if (!produto) {
+    alert("Digite o nome do produto.");
+    return;
+  }
+
+  const botao = document.getElementById("gerar");
+  const status = document.getElementById("status");
+
+  botao.disabled = true;
+  status.classList.remove("oculto");
+
+  try {
+
+    const resposta = await fetch("/api/roteiro", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+
+      body: JSON.stringify({
+        produto: produto,
+        preco: document.getElementById("preco").value,
+        publico: document.getElementById("publico").value,
+        estilo: document.getElementById("estilo").value
+      })
+    });
+
+    const dados = await resposta.json();
+
+    if (!resposta.ok) {
+      throw new Error(dados.error || "Erro ao gerar roteiro");
+    }
+
+    document.getElementById("resultado").textContent = dados.roteiro;
+
+    document.getElementById("cardResultado")
+      .classList.remove("oculto");
+
+  } catch (erro) {
+
+    alert("Erro: " + erro.message);
+
+  } finally {
+
+    botao.disabled = false;
+    status.classList.add("oculto");
+
+  }
+}
+
+
+  async function copiarRoteiro() {
+    const texto = document.getElementById("resultado").textContent;
+    await navigator.clipboard.writeText(texto);
+    alert("Roteiro copiado!");
+}
+
+
+async function gerarNarracao() {
+  
+
+ 
+
+  const botao = document.getElementById("gerarNarracao");
+  const status = document.getElementById("statusNarracao");
+  const audioArea = document.getElementById("audioArea");
+  const roteiroCompleto = document.getElementById("resultado").innerText;
+
+let texto = roteiroCompleto;
+
+const inicioNarracao = roteiroCompleto.indexOf("NARRAÇÃO:");
+const inicioCenas = roteiroCompleto.indexOf("CENAS:");
+
+if (inicioNarracao !== -1) {
+    const inicio = inicioNarracao + "NARRAÇÃO:".length;
+
+    texto = inicioCenas !== -1
+        ? roteiroCompleto.substring(inicio, inicioCenas)
+        : roteiroCompleto.substring(inicio);
+
+    texto = texto.trim();
+}
+if (!texto) {
+    alert("Gere um roteiro primeiro.");
+    return;
+}
+const audioPlayer = document.getElementById("audioPlayer");
+  const baixarAudio = document.getElementById("baixarAudio");
+
+  botao.disabled = true;
+  status.classList.remove("oculto");
+  audioArea.classList.add("oculto");
+
+  try {
+    const resposta = await fetch("/api/narracao", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        texto: texto
+      })
+    });
+
+    const data = await resposta.json();
+
+    if (!resposta.ok) {
+      throw new Error(data.error || "Erro ao gerar narração.");
+    }
+
+    const audioUrl =
+      `data:${data.mimeType};base64,${data.audio}`;
+
+    audioPlayer.src = audioUrl;
+    baixarAudio.href = audioUrl;
+
+    audioArea.classList.remove("oculto");
+
+  } catch (error) {
+    alert("Erro: " + error.message);
+
+  } finally {
+    botao.disabled = false;
+    status.classList.add("oculto");
+  }
+}
+function arquivoParaDataURL(arquivo) {
+    return new Promise((resolve, reject) => {
+        const leitor = new FileReader();
+        leitor.onload = () => resolve(leitor.result);
+        leitor.onerror = () => reject(new Error("Não foi possível ler a foto."));
+        leitor.readAsDataURL(arquivo);
+    });
+}
+
+document.getElementById("fotoProduto").addEventListener("change", async (evento) => {
+    const arquivo = evento.target.files[0];
+    if (!arquivo) return;
+    const dataUrl = await arquivoParaDataURL(arquivo);
+    document.getElementById("imagemPreview").src = dataUrl;
+    document.getElementById("previewFoto").classList.remove("oculto");
+    document.getElementById("fotoStatus").textContent = "✅ Foto selecionada: " + arquivo.name;
+});
+
+async function gerarVideo() {
+    const roteiro = document.getElementById("resultado").innerText;
+    const arquivo = document.getElementById("fotoProduto").files[0];
+
+    if (!roteiro) { alert("Gere um roteiro primeiro."); return; }
+    if (!arquivo) { alert("Escolha uma foto do produto para criar o vídeo."); return; }
+    if (arquivo.size > 8 * 1024 * 1024) { alert("A foto deve ter no máximo 8 MB."); return; }
+
+    let textoNarracao = roteiro;
+    const inicioNarracao = roteiro.indexOf("NARRAÇÃO:");
+    const inicioCenas = roteiro.indexOf("CENAS:");
+    if (inicioNarracao !== -1) {
+        const inicio = inicioNarracao + "NARRAÇÃO:".length;
+        textoNarracao = (inicioCenas !== -1 ? roteiro.substring(inicio, inicioCenas) : roteiro.substring(inicio)).trim();
+    }
+
+    const botao = document.getElementById("gerarVideo");
+    botao.disabled = true;
+    botao.textContent = "🎙️ Criando voz...";
+
+    try {
+        const imagem = await arquivoParaDataURL(arquivo);
+
+        const respostaAudio = await fetch("/api/narracao", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ texto: textoNarracao })
+        });
+        const dadosAudio = await respostaAudio.json();
+        if (!respostaAudio.ok) throw new Error(dadosAudio.error || "Erro ao criar narração.");
+
+        botao.textContent = "🎬 Montando vídeo com voz...";
+        const resposta = await fetch("/api/video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                roteiro,
+                imagem,
+                audio: dadosAudio.audio,
+                audioMimeType: dadosAudio.mimeType
+            })
+        });
+
+        if (!resposta.ok) {
+            let mensagem = "Erro ao gerar vídeo.";
+            try { const erro = await resposta.json(); mensagem = erro.error || mensagem; } catch (_) {}
+            throw new Error(mensagem);
+        }
+
+        const videoBlob = await resposta.blob();
+        const videoUrl = URL.createObjectURL(videoBlob);
+        const link = document.createElement("a");
+        link.href = videoUrl;
+        link.download = "video-tiktok-completo.mp4";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(videoUrl), 3000);
+        alert("🎬 Vídeo com narração gerado com sucesso!");
+    } catch (error) {
+        alert("Erro: " + error.message);
+    } finally {
+        botao.disabled = false;
+        botao.textContent = "🎬 Gerar vídeo completo";
+    }
+}
+
+   
+        
+     
+
+</script>
+
+</body>
+</html>
