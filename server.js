@@ -3,7 +3,7 @@ import ffmpegPath from "ffmpeg-static";
 import { execFile } from "child_process";
 const app = express();
 
-app.use(express.json({ limit: "24mb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(express.static("public"));
 
 const esperar = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -265,10 +265,9 @@ app.post("/api/video", async (req, res) => {
   let caminhoImagem = null;
   let caminhoAudio = null;
   let caminhoVideo = null;
-  let caminhosLegendas = [];
 
   try {
-    let { roteiro, imagem, audio, audioMimeType, textoNarracao, legendas = [] } = req.body;
+    let { roteiro, imagem, audio, audioMimeType, textoNarracao } = req.body;
 
     if (!roteiro) return res.status(400).json({ error: "Roteiro não recebido." });
     if (!imagem || typeof imagem !== "string") {
@@ -329,34 +328,18 @@ app.post("/api/video", async (req, res) => {
       return res.status(413).json({ error: "A narração ficou grande demais." });
     }
 
-    const legendasValidas = Array.isArray(legendas)
-      ? legendas.slice(0, 24).filter(item =>
-          item &&
-          typeof item.imagem === "string" &&
-          /^data:image\/png;base64,/.test(item.imagem) &&
-          Number.isFinite(Number(item.inicio)) &&
-          Number.isFinite(Number(item.fim)) &&
-          Number(item.fim) > Number(item.inicio)
-        )
-      : [];
-
-    caminhosLegendas = legendasValidas.map((_, indice) => `/tmp/legenda-${id}-${indice}.png`);
-
-    const gravacoes = [
+    await Promise.all([
       new Promise((resolve, reject) => writeFile(caminhoImagem, bufferImagem, e => e ? reject(e) : resolve())),
       new Promise((resolve, reject) => writeFile(caminhoAudio, bufferAudio, e => e ? reject(e) : resolve()))
-    ];
+    ]);
 
-    legendasValidas.forEach((item, indice) => {
-      const base64 = item.imagem.replace(/^data:image\/png;base64,/, "");
-      gravacoes.push(
-        new Promise((resolve, reject) =>
-          writeFile(caminhosLegendas[indice], Buffer.from(base64, "base64"), e => e ? reject(e) : resolve())
-        )
-      );
-    });
-
-    await Promise.all(gravacoes);
+    // Configuração leve para evitar timeout no Render Free.
+    const filtro = [
+      "scale=720:1280:force_original_aspect_ratio=increase",
+      "crop=720:1280",
+      "zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24",
+      "format=yuv420p"
+    ].join(",");
 
     const argumentos = ["-loop", "1", "-i", caminhoImagem];
     if (audioEhPCM) {
@@ -365,36 +348,8 @@ app.post("/api/video", async (req, res) => {
       argumentos.push("-i", caminhoAudio);
     }
 
-    // Cada legenda já chega como uma imagem PNG transparente pronta.
-    // Isso evita drawtext/subtitles e preserva a montagem que já funcionava.
-    caminhosLegendas.forEach(caminho => {
-      argumentos.push("-loop", "1", "-i", caminho);
-    });
-
-    const filtros = [
-      "[0:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,zoompan=z='min(zoom+0.0008,1.10)':d=720:s=720x1280:fps=24,format=yuv420p[base]"
-    ];
-
-    let anterior = "base";
-    legendasValidas.forEach((item, indice) => {
-      const saida = indice === legendasValidas.length - 1 ? "vout" : `v${indice}`;
-      const inicio = Math.max(0, Number(item.inicio)).toFixed(2);
-      const fim = Math.max(Number(item.inicio), Number(item.fim)).toFixed(2);
-      filtros.push(
-        `[${indice + 2}:v]format=rgba[ov${indice}];` +
-        `[${anterior}][ov${indice}]overlay=0:0:enable='between(t,${inicio},${fim})'[${saida}]`
-      );
-      anterior = saida;
-    });
-
-    if (!legendasValidas.length) {
-      filtros.push("[base]null[vout]");
-    }
-
     argumentos.push(
-      "-filter_complex", filtros.join(";"),
-      "-map", "[vout]",
-      "-map", "1:a",
+      "-vf", filtro,
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-crf", "28",
@@ -420,7 +375,6 @@ app.post("/api/video", async (req, res) => {
     res.download(caminhoVideo, "video-tiktok-completo.mp4", erroDownload => {
       unlink(caminhoImagem, () => {});
       unlink(caminhoAudio, () => {});
-      caminhosLegendas.forEach(caminho => unlink(caminho, () => {}));
       unlink(caminhoVideo, () => {});
       if (erroDownload && !res.headersSent) {
         res.status(500).json({ error: "Erro ao enviar o vídeo." });
@@ -431,7 +385,6 @@ app.post("/api/video", async (req, res) => {
     const { unlink } = await import("fs");
     if (caminhoImagem) unlink(caminhoImagem, () => {});
     if (caminhoAudio) unlink(caminhoAudio, () => {});
-    caminhosLegendas.forEach(caminho => unlink(caminho, () => {}));
     if (caminhoVideo) unlink(caminhoVideo, () => {});
     if (!res.headersSent) {
       const status = error.status || 500;
