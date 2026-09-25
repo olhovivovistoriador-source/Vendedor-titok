@@ -356,23 +356,14 @@ async function gerarVideo() {
     try {
         const imagem = await arquivoParaDataURL(arquivo);
 
-        const respostaAudio = await fetch("/api/narracao", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ texto: textoNarracao })
-        });
-        const dadosAudio = await respostaAudio.json();
-        if (!respostaAudio.ok) throw new Error(dadosAudio.error || "Erro ao criar narração.");
-
-        botao.textContent = "🎬 Montando vídeo com voz...";
+        botao.textContent = "🎙️ Criando voz e montando vídeo...";
         const resposta = await fetch("/api/video", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 roteiro,
                 imagem,
-                audio: dadosAudio.audio,
-                audioMimeType: dadosAudio.mimeType
+                textoNarracao
             })
         });
 
