@@ -406,18 +406,6 @@ function escaparXml(texto) {
     .replace(/'/g, "&apos;");
 }
 
-function limparLegendaVisual(texto) {
-  return String(texto || "")
-    // Remove marcadores de tempo como [0:05] ou [0:05 - 0:10].
-    .replace(/^\s*\[\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?\]\s*/i, "")
-    // Remove marcações simples de Markdown.
-    .replace(/\*\*/g, "")
-    // Mantém letras, números e pontuação comum; remove emojis/símbolos sem fonte.
-    .replace(/[^\p{L}\p{N}\sR$.,!?%:;'"()\/+-]/gu, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
 function extrairLinhasLegenda(roteiro) {
   const texto = String(roteiro || "");
   const inicio = texto.indexOf("LEGENDAS:");
@@ -427,7 +415,7 @@ function extrairLinhasLegenda(roteiro) {
     : "";
 
   let linhas = trecho.split(/\n+/)
-    .map(l => limparLegendaVisual(l.replace(/^\s*[-•]\s*/, "")))
+    .map(l => l.replace(/^\s*[-•]\s*/, "").trim())
     .filter(Boolean);
 
   if (!linhas.length) {
@@ -439,7 +427,7 @@ function extrairLinhasLegenda(roteiro) {
     const palavras = narracao.split(/\s+/).filter(Boolean);
     linhas = [];
     for (let i = 0; i < palavras.length; i += 7) {
-      linhas.push(limparLegendaVisual(palavras.slice(i, i + 7).join(" ")));
+      linhas.push(palavras.slice(i, i + 7).join(" "));
     }
   }
   return linhas.slice(0, 4);
@@ -463,8 +451,7 @@ function quebrarTextoSvg(texto, max = 24) {
 }
 
 async function criarCardLegendaPNG(texto, destino) {
-  const textoLimpo = limparLegendaVisual(texto);
-  const linhas = quebrarTextoSvg(textoLimpo);
+  const linhas = quebrarTextoSvg(texto);
   const tspans = linhas.map((linha, i) =>
     `<tspan x="300" dy="${i === 0 ? 0 : 58}">${escaparXml(linha)}</tspan>`
   ).join("");
@@ -472,9 +459,9 @@ async function criarCardLegendaPNG(texto, destino) {
   const y = linhas.length > 1 ? 66 : 92;
   const svg = `
   <svg width="600" height="180" xmlns="http://www.w3.org/2000/svg">
-    <rect x="8" y="8" width="584" height="164" rx="28" fill="rgba(0,0,0,0.58)"/>
+    <rect x="8" y="8" width="584" height="164" rx="28" fill="rgba(0,0,0,0.68)"/>
     <text x="300" y="${y}" text-anchor="middle"
-      font-family="Arial, sans-serif" font-size="44" font-weight="900"
+      font-family="Arial, sans-serif" font-size="48" font-weight="900"
       fill="white" stroke="black" stroke-width="3" paint-order="stroke">
       ${tspans}
     </text>
